@@ -9,7 +9,7 @@ use crate::error::ApiError;
 use crate::state::AppState;
 use grok_client::streaming::StreamChunk;
 use grok_client::types::chat::NewConversationRequest;
-use grok_client::types::models::ModelName;
+use grok_client::types::models::{ModelMode, ModelName};
 
 #[derive(Debug, Deserialize)]
 pub struct ChatCompletionRequest {
@@ -88,6 +88,22 @@ struct SseErrorInner<'a> {
     r#type: &'static str,
 }
 
+fn parse_model_string(model: &str) -> (&str, Option<ModelMode>) {
+    for suffix in ["-auto", "-fast", "-expert", "-heavy"] {
+        if let Some(base) = model.strip_suffix(suffix) {
+            let mode = match suffix {
+                "-auto" => ModelMode::Auto,
+                "-fast" => ModelMode::Fast,
+                "-expert" => ModelMode::Expert,
+                "-heavy" => ModelMode::Heavy,
+                _ => unreachable!(),
+            };
+            return (base, Some(mode));
+        }
+    }
+    (model, None)
+}
+
 fn sse_line(json: &impl Serialize) -> bytes::Bytes {
     let mut buf = Vec::with_capacity(128);
     buf.extend_from_slice(b"data: ");
@@ -128,18 +144,23 @@ pub async fn chat_completions(
             acc
         });
 
-    if let Some(ref model) = request.model {
-        grok_req.options.model_name = Some(match model.as_str() {
-            "grok-2" => ModelName::Grok2,
-            "grok-3" => ModelName::Grok3,
-            "grok-3-mini" => ModelName::Grok3Mini,
-            "grok-4" => ModelName::Grok4,
-            "grok-4-mini" => ModelName::Grok4Mini,
-            other => ModelName::Other(other.to_owned()),
-        });
-    }
-
     let model_str = request.model.unwrap_or_else(|| "grok-3".into());
+    let (base_model, mode) = parse_model_string(&model_str);
+
+    grok_req.options.model_name = Some(match base_model {
+        "grok-2" => ModelName::Grok2,
+        "grok-3" => ModelName::Grok3,
+        "grok-3-mini" => ModelName::Grok3Mini,
+        "grok-4" => ModelName::Grok4,
+        "grok-4-mini" => ModelName::Grok4Mini,
+        "grok-420" => ModelName::Grok420,
+        "grok-3-mini-companion" => ModelName::Grok3MiniCompanion,
+        other => ModelName::Other(other.to_owned()),
+    });
+
+    if let Some(m) = mode {
+        grok_req.options.model_mode = Some(m);
+    }
 
     if request.stream {
         stream_response(state, grok_req, model_str.clone()).await

@@ -107,6 +107,16 @@ const MODELS: &[ModelObject] = &[
         created: 1740000000,
         owned_by: "xai",
     },
+    ModelObject { id: "grok-420", object: "model", created: 1740000000, owned_by: "xai" },
+    ModelObject { id: "grok-3-mini-companion", object: "model", created: 1730000000, owned_by: "xai" },
+    ModelObject { id: "grok-3-auto", object: "model", created: 1710000000, owned_by: "xai" },
+    ModelObject { id: "grok-3-fast", object: "model", created: 1710000000, owned_by: "xai" },
+    ModelObject { id: "grok-3-expert", object: "model", created: 1710000000, owned_by: "xai" },
+    ModelObject { id: "grok-3-heavy", object: "model", created: 1710000000, owned_by: "xai" },
+    ModelObject { id: "grok-4-auto", object: "model", created: 1720000000, owned_by: "xai" },
+    ModelObject { id: "grok-4-fast", object: "model", created: 1720000000, owned_by: "xai" },
+    ModelObject { id: "grok-4-expert", object: "model", created: 1720000000, owned_by: "xai" },
+    ModelObject { id: "grok-4-heavy", object: "model", created: 1720000000, owned_by: "xai" },
 ];
 
 pub async fn list_models() -> impl IntoResponse {
