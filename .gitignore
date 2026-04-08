@@ -1,0 +1,12 @@
+target/
+.env
+CLAUDE.md
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+crates/grok-server/tests/

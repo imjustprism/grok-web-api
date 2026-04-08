@@ -1,0 +1,28 @@
+[package]
+name = "grok-server"
+description = "Self-hosted REST API server wrapping Grok's web interface"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+grok-client = { path = "../grok-client" }
+axum = { version = "0.8", features = ["macros"] }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+bytes = { workspace = true }
+futures = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip"] }
+figment = { version = "0.10", features = ["env", "toml"] }
+dotenvy = "0.15"
+anyhow = "1"
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde_json = { workspace = true }

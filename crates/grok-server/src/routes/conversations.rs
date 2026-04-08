@@ -1,0 +1,106 @@
+use axum::Json;
+use axum::extract::{Path, Query, State};
+use axum::response::IntoResponse;
+use serde::Deserialize;
+
+use crate::error::ApiError;
+use crate::state::AppState;
+use grok_client::endpoints::conversations::ListConversationsQuery;
+use grok_client::types::common::ConversationId;
+use grok_client::types::conversation::UpdateConversationRequest;
+
+#[derive(Debug, Deserialize)]
+pub struct ListQuery {
+    pub page_size: Option<u32>,
+    pub page_token: Option<String>,
+    pub starred: Option<bool>,
+}
+
+pub async fn list_conversations(
+    State(state): State<AppState>,
+    Query(query): Query<ListQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let q = ListConversationsQuery {
+        page_size: query.page_size,
+        page_token: query.page_token,
+        filter_is_starred: query.starred,
+        workspace_id: None,
+    };
+    let result = state.client.list_conversations(&q).await?;
+    Ok(Json(result))
+}
+
+pub async fn get_conversation(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let result = state
+        .client
+        .get_conversation(&ConversationId::new(id))
+        .await?;
+    Ok(Json(result))
+}
+
+pub async fn update_conversation(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<UpdateConversationRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let result = state
+        .client
+        .update_conversation(&ConversationId::new(id), &request)
+        .await?;
+    Ok(Json(result))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteQuery {
+    pub soft: Option<bool>,
+}
+
+pub async fn delete_conversation(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<DeleteQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let cid = ConversationId::new(id);
+    if query.soft.unwrap_or(false) {
+        state.client.soft_delete_conversation(&cid).await?;
+    } else {
+        state.client.delete_conversation(&cid, false).await?;
+    }
+    Ok(Json(serde_json::json!({ "status": "deleted" })))
+}
+
+pub async fn restore_conversation(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    state
+        .client
+        .restore_conversation(&ConversationId::new(id))
+        .await?;
+    Ok(Json(serde_json::json!({ "status": "restored" })))
+}
+
+pub async fn generate_title(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let result = state
+        .client
+        .generate_title(&ConversationId::new(id))
+        .await?;
+    Ok(Json(result))
+}
+
+pub async fn list_responses(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let result = state
+        .client
+        .list_responses(&ConversationId::new(id), false)
+        .await?;
+    Ok(Json(result))
+}
