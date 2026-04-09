@@ -2,14 +2,14 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 
-use crate::error::ApiError;
+use crate::error::{ApiError, AppJson};
 use crate::state::AppState;
 use grok_client::types::common::FileMetadataId;
 use grok_client::types::files::UploadFileRequest;
 
 pub async fn upload_file(
     State(state): State<AppState>,
-    Json(request): Json<UploadFileRequest>,
+    AppJson(request): AppJson<UploadFileRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = state.client.upload_file(&request).await?;
     Ok(Json(result))

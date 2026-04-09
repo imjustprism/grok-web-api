@@ -5,7 +5,7 @@ use axum::response::{IntoResponse, Response};
 use futures::StreamExt;
 use serde::Deserialize;
 
-use crate::error::ApiError;
+use crate::error::{ApiError, AppJson};
 use crate::state::AppState;
 use grok_client::types::common::ResponseId;
 use grok_client::types::voice::TtsRequest;
@@ -58,7 +58,7 @@ pub async fn read_response_audio(
 
 pub async fn tts(
     State(state): State<AppState>,
-    Json(request): Json<TtsRequest>,
+    AppJson(request): AppJson<TtsRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let response = state.client.tts(&request).await?;
     let body: serde_json::Value = response

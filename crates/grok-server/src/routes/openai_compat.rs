@@ -5,7 +5,7 @@ use axum::response::{IntoResponse, Response};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
-use crate::error::ApiError;
+use crate::error::{ApiError, AppJson};
 use crate::routes::models::MODE_IDS;
 use crate::state::AppState;
 use grok_client::streaming::StreamChunk;
@@ -124,7 +124,7 @@ fn now_secs() -> u64 {
 
 pub async fn chat_completions(
     State(state): State<AppState>,
-    Json(request): Json<ChatCompletionRequest>,
+    AppJson(request): AppJson<ChatCompletionRequest>,
 ) -> Result<Response, ApiError> {
     let system_prompt = request
         .messages

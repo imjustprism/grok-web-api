@@ -2,7 +2,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 
-use crate::error::ApiError;
+use crate::error::{ApiError, AppJson};
 use crate::state::AppState;
 use grok_client::types::common::{ConversationId, ShareLinkId};
 use grok_client::types::sharing::ShareConversationRequest;
@@ -10,7 +10,7 @@ use grok_client::types::sharing::ShareConversationRequest;
 pub async fn share_conversation(
     State(state): State<AppState>,
     Path(conversation_id): Path<String>,
-    Json(request): Json<ShareConversationRequest>,
+    AppJson(request): AppJson<ShareConversationRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = state
         .client

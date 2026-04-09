@@ -2,7 +2,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 
-use crate::error::ApiError;
+use crate::error::{ApiError, AppJson};
 use crate::state::AppState;
 use grok_client::types::common::{CompanionId, MemoryId};
 use grok_client::types::memory::EditMemoryRequest;
@@ -28,7 +28,7 @@ pub async fn fetch_memories(
 pub async fn edit_memory(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(request): Json<EditMemoryRequest>,
+    AppJson(request): AppJson<EditMemoryRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
         .client

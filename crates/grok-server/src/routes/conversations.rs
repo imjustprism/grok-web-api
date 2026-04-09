@@ -3,7 +3,7 @@ use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use serde::Deserialize;
 
-use crate::error::ApiError;
+use crate::error::{ApiError, AppJson};
 use crate::state::AppState;
 use grok_client::endpoints::conversations::ListConversationsQuery;
 use grok_client::types::common::ConversationId;
@@ -44,7 +44,7 @@ pub async fn get_conversation(
 pub async fn update_conversation(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(request): Json<UpdateConversationRequest>,
+    AppJson(request): AppJson<UpdateConversationRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = state
         .client

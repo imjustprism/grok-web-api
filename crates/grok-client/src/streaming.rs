@@ -10,20 +10,47 @@ use crate::types::common::ConversationId;
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum StreamChunk {
-    ConversationCreated { conversation_id: ConversationId },
+    ConversationCreated {
+        conversation_id: ConversationId,
+    },
 
-    Token { text: String, is_soft_stop: bool },
+    Token {
+        text: String,
+        is_soft_stop: bool,
+    },
 
-    ThinkingToken { text: String },
+    ThinkingToken {
+        text: String,
+    },
 
-    WebSearch(serde_json::Value),
-    ImageGenerated(serde_json::Value),
-    Progress { category: String, message: String },
+    WebSearch {
+        query: Option<String>,
+        results: Vec<WebSearchResult>,
+        raw: serde_json::Value,
+    },
+    ImageGenerated {
+        url: Option<String>,
+        raw: serde_json::Value,
+    },
 
-    Error { message: String },
+    Error {
+        message: String,
+    },
 
     Done,
     Unknown(serde_json::Value),
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct WebSearchResult {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub snippet: Option<String>,
 }
 
 pin_project! {
@@ -202,6 +229,27 @@ fn parse_ndjson_line(line: &str) -> Result<Option<StreamChunk>> {
         return Ok(Some(StreamChunk::Token {
             text: token.to_owned(),
             is_soft_stop,
+        }));
+    }
+
+    if let Some(search) = token_source.get("webSearchResults") {
+        let results: Vec<WebSearchResult> =
+            serde_json::from_value(search.clone()).unwrap_or_default();
+        let query = token_source
+            .get("query")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        return Ok(Some(StreamChunk::WebSearch {
+            query,
+            results,
+            raw: value,
+        }));
+    }
+
+    if let Some(img) = token_source.get("generatedImageUrl") {
+        return Ok(Some(StreamChunk::ImageGenerated {
+            url: img.as_str().map(String::from),
+            raw: value,
         }));
     }
 

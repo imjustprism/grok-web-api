@@ -4,7 +4,7 @@ use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use futures::StreamExt;
 
-use crate::error::ApiError;
+use crate::error::{ApiError, AppJson};
 use crate::state::AppState;
 use grok_client::types::chat::{AddResponseRequest, NewConversationRequest, QuickAnswerRequest};
 use grok_client::types::common::ConversationId;
@@ -22,7 +22,7 @@ fn ndjson_stream(response: grok_client::wreq::Response) -> Response {
 
 pub async fn create_chat(
     State(state): State<AppState>,
-    Json(request): Json<NewConversationRequest>,
+    AppJson(request): AppJson<NewConversationRequest>,
 ) -> Result<Response, ApiError> {
     let response = state.client.create_conversation_raw(&request).await?;
     Ok(ndjson_stream(response))
@@ -31,7 +31,7 @@ pub async fn create_chat(
 pub async fn continue_chat(
     State(state): State<AppState>,
     Path(conversation_id): Path<String>,
-    Json(request): Json<AddResponseRequest>,
+    AppJson(request): AppJson<AddResponseRequest>,
 ) -> Result<Response, ApiError> {
     let response = state
         .client
@@ -42,7 +42,7 @@ pub async fn continue_chat(
 
 pub async fn quick_answer(
     State(state): State<AppState>,
-    Json(body): Json<QuickAnswerRequest>,
+    AppJson(body): AppJson<QuickAnswerRequest>,
 ) -> Result<Response, ApiError> {
     let response = state.client.quick_answer(&body.query).await?;
     Ok(ndjson_stream(response))

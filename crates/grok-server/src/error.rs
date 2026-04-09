@@ -1,6 +1,32 @@
+use axum::extract::FromRequest;
+use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
+
+pub struct AppJson<T>(pub T);
+
+impl<S, T> FromRequest<S> for AppJson<T>
+where
+    axum::Json<T>: FromRequest<S, Rejection = JsonRejection>,
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(
+        req: axum::extract::Request,
+        state: &S,
+    ) -> std::result::Result<Self, Self::Rejection> {
+        let axum::Json(value) = axum::Json::<T>::from_request(req, state).await?;
+        Ok(Self(value))
+    }
+}
+
+impl<T: Serialize> IntoResponse for AppJson<T> {
+    fn into_response(self) -> Response {
+        axum::Json(self.0).into_response()
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -54,6 +80,17 @@ impl ApiError {
 
     pub fn bad_request(detail: String) -> Self {
         Self::new("bad_request", "Bad Request", 400, detail)
+    }
+}
+
+impl From<JsonRejection> for ApiError {
+    fn from(rejection: JsonRejection) -> Self {
+        Self::new(
+            "invalid_request",
+            "Invalid Request Body",
+            rejection.status().as_u16(),
+            rejection.body_text(),
+        )
     }
 }
 
