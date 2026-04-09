@@ -7,7 +7,7 @@ use futures::StreamExt;
 use crate::error::{ApiError, AppJson};
 use crate::state::AppState;
 use grok_client::types::chat::{AddResponseRequest, NewConversationRequest, QuickAnswerRequest};
-use grok_client::types::common::ConversationId;
+use grok_client::types::common::{ConversationId, ResponseId};
 
 fn ndjson_stream(response: grok_client::wreq::Response) -> Response {
     let stream = response
@@ -45,6 +45,28 @@ pub async fn quick_answer(
     AppJson(body): AppJson<QuickAnswerRequest>,
 ) -> Result<Response, ApiError> {
     let response = state.client.quick_answer(&body.query).await?;
+    Ok(ndjson_stream(response))
+}
+
+pub async fn cancel_chat(
+    State(state): State<AppState>,
+    Path(response_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    state
+        .client
+        .cancel_response(&ResponseId::new(response_id))
+        .await?;
+    Ok(Json(serde_json::json!({ "status": "cancelled" })))
+}
+
+pub async fn reconnect_chat(
+    State(state): State<AppState>,
+    Path(response_id): Path<String>,
+) -> Result<Response, ApiError> {
+    let response = state
+        .client
+        .reconnect_response(&ResponseId::new(response_id))
+        .await?;
     Ok(ndjson_stream(response))
 }
 

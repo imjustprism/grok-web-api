@@ -5,7 +5,7 @@ use axum::response::IntoResponse;
 use crate::error::{ApiError, AppJson};
 use crate::state::AppState;
 use grok_client::types::artifacts::UpdateArtifactRequest;
-use grok_client::types::common::{ArtifactId, ArtifactVersionId};
+use grok_client::types::common::{ArtifactId, ArtifactVersionId, ConversationId};
 
 pub async fn get_artifact(
     State(state): State<AppState>,
@@ -22,6 +22,17 @@ pub async fn get_artifact_content(
     let result = state
         .client
         .get_artifact_content(&ArtifactVersionId::new(version_id))
+        .await?;
+    Ok(Json(result))
+}
+
+pub async fn get_artifacts_metadata(
+    State(state): State<AppState>,
+    Path(conversation_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let result = state
+        .client
+        .get_artifacts_metadata(&ConversationId::new(conversation_id))
         .await?;
     Ok(Json(result))
 }

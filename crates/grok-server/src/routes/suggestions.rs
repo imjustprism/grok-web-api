@@ -3,7 +3,7 @@ use axum::extract::{Query, State};
 use axum::response::IntoResponse;
 use serde::Deserialize;
 
-use crate::error::ApiError;
+use crate::error::{ApiError, AppJson};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -25,6 +25,14 @@ pub async fn get_suggestions(
 
 pub async fn get_starters(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let result = state.client.get_conversation_starters().await?;
+    Ok(Json(result))
+}
+
+pub async fn fetch_follow_up_suggestions(
+    State(state): State<AppState>,
+    AppJson(body): AppJson<serde_json::Value>,
+) -> Result<impl IntoResponse, ApiError> {
+    let result = state.client.fetch_follow_up_suggestions(&body).await?;
     Ok(Json(result))
 }
 

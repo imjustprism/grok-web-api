@@ -79,6 +79,28 @@ pub async fn delete_all_conversations(
     Ok(Json(serde_json::json!({ "status": "deleted" })))
 }
 
+pub async fn conversation_exists(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let exists = state
+        .client
+        .conversation_exists(&ConversationId::new(id))
+        .await?;
+    Ok(Json(serde_json::json!({ "exists": exists })))
+}
+
+pub async fn list_deleted_conversations(
+    State(state): State<AppState>,
+    Query(query): Query<ListQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let result = state
+        .client
+        .list_deleted_conversations(query.page_size, query.page_token.as_deref())
+        .await?;
+    Ok(Json(result))
+}
+
 pub async fn restore_conversation(
     State(state): State<AppState>,
     Path(id): Path<String>,

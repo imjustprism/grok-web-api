@@ -13,6 +13,7 @@ pub mod chat;
 pub mod code;
 pub mod conversations;
 pub mod files;
+pub mod google_drive;
 pub mod health;
 pub mod memory;
 pub mod models;
@@ -70,15 +71,28 @@ pub fn router(state: AppState) -> Router {
             post(chat::continue_chat),
         )
         .route("/v1/chat/{conversation_id}/stop", post(chat::stop_chat))
+        .route("/v1/chat/{response_id}/cancel", post(chat::cancel_chat))
+        .route(
+            "/v1/chat/{response_id}/reconnect",
+            get(chat::reconnect_chat),
+        )
         .route(
             "/v1/conversations",
             get(conversations::list_conversations).delete(conversations::delete_all_conversations),
+        )
+        .route(
+            "/v1/conversations/deleted",
+            get(conversations::list_deleted_conversations),
         )
         .route(
             "/v1/conversations/{id}",
             get(conversations::get_conversation)
                 .put(conversations::update_conversation)
                 .delete(conversations::delete_conversation),
+        )
+        .route(
+            "/v1/conversations/{id}/exists",
+            get(conversations::conversation_exists),
         )
         .route(
             "/v1/conversations/{id}/restore",
@@ -92,6 +106,10 @@ pub fn router(state: AppState) -> Router {
             "/v1/conversations/{id}/responses",
             get(conversations::list_responses),
         )
+        .route(
+            "/v1/conversations/{id}/artifacts",
+            get(artifacts::get_artifacts_metadata),
+        )
         .route("/v1/files", post(files::upload_file))
         .route("/v1/files/{id}/metadata", get(files::get_file_metadata))
         .route("/v1/code/run", post(code::run_code))
@@ -101,6 +119,10 @@ pub fn router(state: AppState) -> Router {
             get(memory::fetch_memories)
                 .put(memory::edit_memory)
                 .delete(memory::delete_memory),
+        )
+        .route(
+            "/v1/memory/v2/all/{companion_id}",
+            axum::routing::delete(memory::delete_all_memories),
         )
         .route("/v1/voice/read/{response_id}", get(voice::read_response))
         .route(
@@ -120,6 +142,10 @@ pub fn router(state: AppState) -> Router {
             "/v1/sharing/{conversation_id}",
             post(sharing::share_conversation),
         )
+        .route(
+            "/v1/sharing/{conversation_id}/artifact",
+            post(sharing::share_artifact),
+        )
         .route("/v1/sharing/links", get(sharing::list_share_links))
         .route(
             "/v1/sharing/links/{id}",
@@ -129,9 +155,19 @@ pub fn router(state: AppState) -> Router {
             "/v1/sharing/links/{id}/clone",
             post(sharing::clone_share_link),
         )
+        .route(
+            "/v1/sharing/artifacts/{id}",
+            get(sharing::get_shared_artifact),
+        )
         .route("/v1/suggestions", get(suggestions::get_suggestions))
         .route("/v1/suggestions/starters", get(suggestions::get_starters))
+        .route(
+            "/v1/suggestions/follow-up",
+            post(suggestions::fetch_follow_up_suggestions),
+        )
         .route("/v1/images", get(suggestions::list_image_generations))
+        .route("/v1/google-drive/files", get(google_drive::list_files))
+        .route("/v1/google-drive/files/{id}", get(google_drive::read_file))
         .layer(middleware::from_fn_with_state(state.clone(), api_key_auth));
 
     let raw = Router::new()
