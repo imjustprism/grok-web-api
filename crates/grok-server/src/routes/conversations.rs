@@ -72,6 +72,13 @@ pub async fn delete_conversation(
     Ok(Json(serde_json::json!({ "status": "deleted" })))
 }
 
+pub async fn delete_all_conversations(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    state.client.delete_all_conversations().await?;
+    Ok(Json(serde_json::json!({ "status": "deleted" })))
+}
+
 pub async fn restore_conversation(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -94,13 +101,22 @@ pub async fn generate_title(
     Ok(Json(result))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ResponsesQuery {
+    pub include_threads: Option<bool>,
+}
+
 pub async fn list_responses(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    Query(query): Query<ResponsesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result = state
         .client
-        .list_responses(&ConversationId::new(id), false)
+        .list_responses(
+            &ConversationId::new(id),
+            query.include_threads.unwrap_or(false),
+        )
         .await?;
     Ok(Json(result))
 }

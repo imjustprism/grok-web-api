@@ -281,6 +281,37 @@ impl NewConversationRequestBuilder {
     }
 
     #[must_use]
+    pub fn file_attachments(mut self, files: Vec<serde_json::Value>) -> Self {
+        self.0.options.file_attachments = Some(files);
+        self
+    }
+
+    #[must_use]
+    pub fn image_attachments(mut self, images: Vec<serde_json::Value>) -> Self {
+        self.0.options.image_attachments = Some(images);
+        self
+    }
+
+    #[must_use]
+    pub fn companion(mut self, id: CompanionId) -> Self {
+        self.0.options.companion_id = Some(id);
+        self
+    }
+
+    #[must_use]
+    pub fn custom_personality(mut self, personality: impl Into<String>) -> Self {
+        self.0.options.custom_personality = Some(personality.into());
+        self
+    }
+
+    #[must_use]
+    pub fn side_by_side(mut self) -> Self {
+        self.0.options.enable_side_by_side = Some(true);
+        self.0.force_side_by_side = Some(true);
+        self
+    }
+
+    #[must_use]
     pub fn build(self) -> NewConversationRequest {
         self.0
     }
@@ -325,5 +356,49 @@ impl AddResponseRequest {
             message: message.into(),
             ..Default::default()
         }
+    }
+
+    #[must_use]
+    pub fn builder(message: impl Into<String>) -> AddResponseRequestBuilder {
+        AddResponseRequestBuilder(Self::new(message))
+    }
+}
+
+pub struct AddResponseRequestBuilder(AddResponseRequest);
+
+impl AddResponseRequestBuilder {
+    #[must_use]
+    pub fn model(mut self, model: ModelName) -> Self {
+        self.0.options.model_name = Some(model);
+        self
+    }
+
+    #[must_use]
+    pub fn parent_response(mut self, id: ResponseId) -> Self {
+        self.0.parent_response_id = Some(id);
+        self
+    }
+
+    #[must_use]
+    pub fn model_mode(mut self, mode: ModelMode) -> Self {
+        self.0.options.model_mode = Some(mode);
+        self
+    }
+
+    #[must_use]
+    pub fn reasoning(mut self, enabled: bool) -> Self {
+        self.0.options.is_reasoning = Some(enabled);
+        self
+    }
+
+    #[must_use]
+    pub fn custom_instructions(mut self, instructions: impl Into<String>) -> Self {
+        self.0.options.custom_instructions = Some(instructions.into());
+        self
+    }
+
+    #[must_use]
+    pub fn build(self) -> AddResponseRequest {
+        self.0
     }
 }

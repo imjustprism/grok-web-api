@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use pin_project_lite::pin_project;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -47,6 +47,53 @@ where
             done: false,
         }
     }
+}
+
+impl<S> GrokStream<S>
+where
+    S: Stream<Item = std::result::Result<Bytes, wreq::Error>> + Unpin,
+{
+    pub async fn collect_text(&mut self) -> Result<String> {
+        let mut text = String::new();
+        while let Some(chunk) = self.next().await {
+            match chunk? {
+                StreamChunk::Token { text: t, .. } => text.push_str(&t),
+                StreamChunk::Done => break,
+                StreamChunk::Error { message } => {
+                    return Err(GrokError::StreamParse(message));
+                }
+                _ => {}
+            }
+        }
+        Ok(text)
+    }
+
+    pub async fn collect_full(&mut self) -> Result<CollectedResponse> {
+        let mut response = CollectedResponse::default();
+        while let Some(chunk) = self.next().await {
+            match chunk? {
+                StreamChunk::ConversationCreated { conversation_id } => {
+                    response.conversation_id = Some(conversation_id);
+                }
+                StreamChunk::Token { text, .. } => response.text.push_str(&text),
+                StreamChunk::ThinkingToken { text } => response.thinking.push_str(&text),
+                StreamChunk::Done => break,
+                StreamChunk::Error { message } => {
+                    return Err(GrokError::StreamParse(message));
+                }
+                _ => {}
+            }
+        }
+        Ok(response)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct CollectedResponse {
+    pub conversation_id: Option<ConversationId>,
+    pub text: String,
+    pub thinking: String,
 }
 
 impl<S> Stream for GrokStream<S>

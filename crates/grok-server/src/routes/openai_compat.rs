@@ -75,6 +75,8 @@ struct ChunkChoice<'a> {
 #[derive(Serialize)]
 struct Delta<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
+    role: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<&'a str>,
 }
 
@@ -124,26 +126,39 @@ pub async fn chat_completions(
     State(state): State<AppState>,
     Json(request): Json<ChatCompletionRequest>,
 ) -> Result<Response, ApiError> {
-    let user_message = request
-        .messages
-        .iter()
-        .rev()
-        .find(|m| m.role == "user")
-        .map(|m| m.content.clone())
-        .unwrap_or_default();
-
-    let mut grok_req = NewConversationRequest::new(&user_message);
-    grok_req.temporary = Some(true);
-    grok_req.options.custom_instructions = request
+    let system_prompt = request
         .messages
         .iter()
         .filter(|m| m.role == "system")
-        .map(|m| m.content.clone())
-        .reduce(|mut acc, s| {
-            acc.push('\n');
-            acc.push_str(&s);
-            acc
-        });
+        .map(|m| m.content.as_str())
+        .collect::<Vec<_>>();
+
+    let non_system: Vec<_> = request
+        .messages
+        .iter()
+        .filter(|m| m.role != "system")
+        .collect();
+
+    let prompt = if non_system.len() <= 1 {
+        non_system
+            .first()
+            .map(|m| m.content.clone())
+            .unwrap_or_default()
+    } else {
+        let history = non_system[..non_system.len() - 1]
+            .iter()
+            .map(|m| format!("[{}]: {}", m.role, m.content))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let last = &non_system[non_system.len() - 1].content;
+        format!("{history}\n\n[user]: {last}")
+    };
+
+    let mut grok_req = NewConversationRequest::new(&prompt);
+    grok_req.temporary = Some(true);
+    if !system_prompt.is_empty() {
+        grok_req.options.custom_instructions = Some(system_prompt.join("\n"));
+    }
 
     let model_str = request.model.unwrap_or_else(|| "auto".into());
 
@@ -182,15 +197,54 @@ async fn stream_response(
     let completion_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
     let created = now_secs();
 
+    let mut sent_role = false;
+
     let sse_stream = grok_stream.filter_map(move |chunk_result| {
         let id = completion_id.clone();
         let model = model.clone();
+        let needs_role = !sent_role;
+        if needs_role {
+            sent_role = true;
+        }
 
         async move {
             match chunk_result {
                 Ok(StreamChunk::Token { text, is_soft_stop }) => {
                     if is_soft_stop && text.is_empty() {
                         return None;
+                    }
+                    if needs_role {
+                        let role_chunk = ChunkWrapper {
+                            id: &id,
+                            object: "chat.completion.chunk",
+                            created,
+                            model: &model,
+                            choices: [ChunkChoice {
+                                index: 0,
+                                delta: Delta {
+                                    role: Some("assistant"),
+                                    content: None,
+                                },
+                                finish_reason: None,
+                            }],
+                        };
+                        let mut buf = sse_line(&role_chunk).to_vec();
+                        let content_chunk = ChunkWrapper {
+                            id: &id,
+                            object: "chat.completion.chunk",
+                            created,
+                            model: &model,
+                            choices: [ChunkChoice {
+                                index: 0,
+                                delta: Delta {
+                                    role: None,
+                                    content: Some(&text),
+                                },
+                                finish_reason: None,
+                            }],
+                        };
+                        buf.extend_from_slice(&sse_line(&content_chunk));
+                        return Some(Ok::<_, std::io::Error>(bytes::Bytes::from(buf)));
                     }
                     let chunk = ChunkWrapper {
                         id: &id,
@@ -200,6 +254,7 @@ async fn stream_response(
                         choices: [ChunkChoice {
                             index: 0,
                             delta: Delta {
+                                role: None,
                                 content: Some(&text),
                             },
                             finish_reason: None,
@@ -215,7 +270,10 @@ async fn stream_response(
                         model: &model,
                         choices: [ChunkChoice {
                             index: 0,
-                            delta: Delta { content: None },
+                            delta: Delta {
+                                role: None,
+                                content: None,
+                            },
                             finish_reason: Some("stop"),
                         }],
                     };

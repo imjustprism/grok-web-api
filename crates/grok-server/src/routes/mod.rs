@@ -25,9 +25,21 @@ pub mod voice;
 async fn request_tracking(State(state): State<AppState>, request: Request, next: Next) -> Response {
     state.record_request();
     let request_id = uuid::Uuid::new_v4().to_string();
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
+    let start = std::time::Instant::now();
+
     let mut response = next.run(request).await;
+
+    let elapsed = start.elapsed();
+    let status = response.status().as_u16();
+    tracing::info!("{method} {path} {status} {}ms", elapsed.as_millis());
+
     if let Ok(val) = axum::http::HeaderValue::from_str(&request_id) {
         response.headers_mut().insert("x-request-id", val);
+    }
+    if let Ok(val) = axum::http::HeaderValue::from_str(&format!("{}ms", elapsed.as_millis())) {
+        response.headers_mut().insert("x-response-time", val);
     }
     response
 }
@@ -50,6 +62,7 @@ pub fn router(state: AppState) -> Router {
             post(openai_compat::chat_completions).get(chat_completions_get),
         )
         .route("/v1/models", get(models::list_models))
+        .route("/v1/models/{id}", get(models::get_model))
         .route("/v1/chat", post(chat::create_chat))
         .route("/v1/chat/quick", post(chat::quick_answer))
         .route(
@@ -57,7 +70,10 @@ pub fn router(state: AppState) -> Router {
             post(chat::continue_chat),
         )
         .route("/v1/chat/{conversation_id}/stop", post(chat::stop_chat))
-        .route("/v1/conversations", get(conversations::list_conversations))
+        .route(
+            "/v1/conversations",
+            get(conversations::list_conversations).delete(conversations::delete_all_conversations),
+        )
         .route(
             "/v1/conversations/{id}",
             get(conversations::get_conversation)

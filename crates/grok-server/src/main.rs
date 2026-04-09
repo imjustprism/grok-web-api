@@ -4,7 +4,7 @@ use tokio::net::TcpListener;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 mod auth;
 mod config;
@@ -78,11 +78,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     match grok_client.check_session().await {
-        Ok(true) => debug!("Grok session is valid"),
+        Ok(true) => info!("Session valid"),
         Ok(false) => {
-            warn!("Grok session expired, update cookies")
+            error!("Session expired — update GROK_SSO_COOKIE and GROK_SSO_RW_COOKIE");
         }
-        Err(e) => warn!("Could not validate Grok session: {e}"),
+        Err(e) => error!("Session check failed: {e}"),
     }
 
     let check_interval = Duration::from_secs(config.session_check_interval_secs);
@@ -105,12 +105,19 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    let has_challenge = state.config.challenge_header_hex.is_some();
+    let has_api_key = state
+        .config
+        .api_key
+        .as_deref()
+        .is_some_and(|k| !k.is_empty());
+
     let app = routes::router(state)
         .layer(CompressionLayer::new())
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http());
 
-    debug!(%addr, "Listening");
+    info!("Listening on http://{addr}  challenge={has_challenge}  api_key={has_api_key}");
 
     let listener = TcpListener::bind(addr).await?;
     axum::serve(listener, app)

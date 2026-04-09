@@ -1,6 +1,9 @@
 use axum::Json;
+use axum::extract::Path;
 use axum::response::IntoResponse;
 use serde::Serialize;
+
+use crate::error::ApiError;
 
 pub const MODE_IDS: &[&str] = &[
     "auto",
@@ -119,5 +122,13 @@ pub async fn list_models() -> impl IntoResponse {
     Json(ModelList {
         object: "list",
         data: MODELS,
+    })
+}
+
+pub async fn get_model(Path(id): Path<String>) -> Result<impl IntoResponse, ApiError> {
+    MODELS.iter().find(|m| m.id == id).map(Json).ok_or_else(|| {
+        ApiError::bad_request(format!(
+            "Model '{id}' not found. Use GET /v1/models for available models."
+        ))
     })
 }

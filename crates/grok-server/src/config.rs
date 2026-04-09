@@ -65,6 +65,8 @@ impl Config {
                         "HOST",
                         "PORT",
                         "LOG_LEVEL",
+                        "SESSION_CHECK_INTERVAL_SECS",
+                        "GROK_BASE_URL",
                     ])
                     .map(|key| match key.as_str() {
                         "GROK_SSO_COOKIE" => "grok_sso_cookie".into(),
@@ -78,6 +80,8 @@ impl Config {
                         "HOST" => "host".into(),
                         "PORT" => "port".into(),
                         "LOG_LEVEL" => "log_level".into(),
+                        "SESSION_CHECK_INTERVAL_SECS" => "session_check_interval_secs".into(),
+                        "GROK_BASE_URL" => "grok_base_url".into(),
                         other => other.into(),
                     }),
             )

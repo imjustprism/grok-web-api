@@ -7,6 +7,9 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
+repository = "https://github.com/imjustprism/grok-web-api"
+keywords = ["grok", "xai", "ai", "chat", "openai"]
+categories = ["api-bindings", "web-programming::http-client"]
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
