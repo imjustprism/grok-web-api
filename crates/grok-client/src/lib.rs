@@ -15,6 +15,10 @@ pub use types::chat::{
     AddResponseRequest, AddResponseRequestBuilder, ChatOptions, NewConversationRequest,
     NewConversationRequestBuilder,
 };
-pub use types::common::{ConversationId, ResponseId};
+pub use types::common::{
+    ArtifactType, CodeLanguage, CollectionId, ConnectorId, ConversationId, FollowUpType,
+    GoogleDriveFileId, ImagineProjectId, ModeId, ResponseId, Sender, SharedArtifactId, TemplateId,
+    Timestamp, VoiceId, WorkspaceId,
+};
 pub use types::models::{DeepsearchPreset, ModelMode, ModelName};
 pub use wreq;

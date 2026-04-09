@@ -20,12 +20,16 @@ pub async fn list_conversations(
     State(state): State<AppState>,
     Query(query): Query<ListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let q = ListConversationsQuery {
-        page_size: query.page_size,
-        page_token: query.page_token,
-        filter_is_starred: query.starred,
-        workspace_id: None,
-    };
+    let mut q = ListConversationsQuery::new();
+    if let Some(size) = query.page_size {
+        q = q.page_size(size);
+    }
+    if let Some(token) = query.page_token {
+        q = q.page_token(token);
+    }
+    if let Some(starred) = query.starred {
+        q = q.starred(starred);
+    }
     let result = state.client.list_conversations(&q).await?;
     Ok(Json(result))
 }

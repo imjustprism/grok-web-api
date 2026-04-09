@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::common::{ConversationId, ResponseId};
+use super::common::{ConversationId, ResponseId, Sender, Timestamp};
 use super::conversation::Conversation;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,10 +62,10 @@ pub struct GrokResponse {
     pub message: Option<String>,
 
     #[serde(default)]
-    pub sender: Option<String>,
+    pub sender: Option<Sender>,
 
     #[serde(default)]
-    pub create_time: Option<String>,
+    pub create_time: Option<Timestamp>,
 
     #[serde(default)]
     pub is_soft_stop: Option<bool>,

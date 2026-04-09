@@ -5,6 +5,7 @@ use serde::Deserialize;
 
 use crate::error::ApiError;
 use crate::state::AppState;
+use grok_client::types::common::GoogleDriveFileId;
 
 #[derive(Debug, Deserialize)]
 pub struct DriveQuery {
@@ -26,6 +27,9 @@ pub async fn read_file(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let result = state.client.read_google_drive_file(&id).await?;
+    let result = state
+        .client
+        .read_google_drive_file(&GoogleDriveFileId::new(id))
+        .await?;
     Ok(Json(result))
 }

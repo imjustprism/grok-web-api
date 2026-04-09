@@ -19,7 +19,12 @@ thiserror = { workspace = true }
 bytes = { workspace = true }
 futures = { workspace = true }
 pin-project-lite = "0.2"
+memchr = "2"
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
 rand = "0.9"
 base64 = "0.22"
+
+[dev-dependencies]
+tokio = { workspace = true }
+futures = { workspace = true }

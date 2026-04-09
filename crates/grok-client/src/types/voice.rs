@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::common::VoiceId;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -10,7 +12,7 @@ pub struct TtsRequest {
     pub sanitize: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub voice: Option<String>,
+    pub voice: Option<VoiceId>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_alignment: Option<bool>,

@@ -18,6 +18,18 @@ pub struct ChatCompletionRequest {
     pub messages: Vec<Message>,
     #[serde(default)]
     pub stream: bool,
+    #[serde(default)]
+    pub temperature: Option<f64>,
+    #[serde(default)]
+    pub max_tokens: Option<u64>,
+    #[serde(default)]
+    pub max_completion_tokens: Option<u64>,
+    #[serde(default)]
+    pub top_p: Option<f64>,
+    #[serde(default)]
+    pub tools: Option<serde_json::Value>,
+    #[serde(default)]
+    pub response_format: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,7 +120,7 @@ fn parse_model_string(model: &str) -> (&str, Option<ModelMode>) {
 }
 
 fn sse_line(json: &impl Serialize) -> bytes::Bytes {
-    let mut buf = Vec::with_capacity(128);
+    let mut buf = Vec::with_capacity(256);
     buf.extend_from_slice(b"data: ");
     serde_json::to_writer(&mut buf, json).unwrap_or_default();
     buf.extend_from_slice(b"\n\n");
@@ -126,6 +138,22 @@ pub async fn chat_completions(
     State(state): State<AppState>,
     AppJson(request): AppJson<ChatCompletionRequest>,
 ) -> Result<Response, ApiError> {
+    if request.temperature.is_some()
+        || request.top_p.is_some()
+        || request.max_tokens.is_some()
+        || request.max_completion_tokens.is_some()
+    {
+        tracing::debug!(
+            "OpenAI params temperature/top_p/max_tokens ignored — Grok web API does not support these"
+        );
+    }
+    if request.tools.is_some() {
+        tracing::warn!("tools/functions not supported — tool calls will be ignored");
+    }
+    if request.response_format.is_some() {
+        tracing::debug!("response_format ignored — Grok web API does not support JSON mode");
+    }
+
     let system_prompt = request
         .messages
         .iter()
@@ -163,7 +191,7 @@ pub async fn chat_completions(
     let model_str = request.model.unwrap_or_else(|| "auto".into());
 
     if MODE_IDS.contains(&model_str.as_str()) {
-        grok_req.options.mode_id = Some(model_str.clone());
+        grok_req.options.mode_id = Some(model_str.clone().into());
     } else {
         let (base_model, mode) = parse_model_string(&model_str);
 
@@ -323,16 +351,7 @@ async fn non_stream_response(
     model: String,
 ) -> Result<Response, ApiError> {
     let mut grok_stream = state.client.create_conversation(&grok_req).await?;
-
-    let mut full_text = String::new();
-    while let Some(chunk) = grok_stream.next().await {
-        match chunk {
-            Ok(StreamChunk::Token { text, .. }) => full_text.push_str(&text),
-            Ok(StreamChunk::Done) => break,
-            Err(e) => return Err(ApiError::from(e)),
-            _ => {}
-        }
-    }
+    let full_text = grok_stream.collect_text().await?;
 
     Ok(Json(ChatCompletionResponse {
         id: format!("chatcmpl-{}", uuid::Uuid::new_v4()),

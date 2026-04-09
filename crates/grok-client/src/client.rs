@@ -16,6 +16,8 @@ const STREAM_TIMEOUT: Duration = Duration::from_secs(300);
 pub struct GrokClient {
     http: Client,
     base_url: String,
+    api_prefix: String,
+    static_headers: HeaderMap,
     auth: GrokAuth,
     token_provider: Option<Arc<dyn TokenProvider>>,
 }
@@ -108,9 +110,26 @@ impl GrokClient {
             .build()
             .map_err(GrokError::Request)?;
 
+        let base = base_url.into().trim_end_matches('/').to_owned();
+        let api_prefix = format!("{base}/rest/app-chat");
+
+        let mut static_headers = HeaderMap::with_capacity(8);
+        if let Ok(val) = HeaderValue::from_str(auth.cookie_header()) {
+            static_headers.insert(COOKIE, val);
+        }
+        static_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        static_headers.insert("accept", HeaderValue::from_static("*/*"));
+        static_headers.insert("origin", HeaderValue::from_static("https://grok.com"));
+        static_headers.insert("referer", HeaderValue::from_static("https://grok.com/"));
+        static_headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
+        static_headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
+        static_headers.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
+
         Ok(Self {
             http,
-            base_url: base_url.into().trim_end_matches('/').to_owned(),
+            base_url: base,
+            api_prefix,
+            static_headers,
             auth,
             token_provider: None,
         })
@@ -129,27 +148,11 @@ impl GrokClient {
 
     #[must_use]
     pub fn url(&self, path: &str) -> String {
-        format!(
-            "{}/rest/app-chat/{}",
-            self.base_url,
-            path.trim_start_matches('/')
-        )
+        format!("{}/{}", self.api_prefix, path.trim_start_matches('/'))
     }
 
     async fn build_headers(&self, path: &str, method: &str) -> HeaderMap {
-        let mut headers = HeaderMap::new();
-
-        if let Ok(val) = HeaderValue::from_str(self.auth.cookie_header()) {
-            headers.insert(COOKIE, val);
-        }
-
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        headers.insert("accept", HeaderValue::from_static("*/*"));
-        headers.insert("origin", HeaderValue::from_static("https://grok.com"));
-        headers.insert("referer", HeaderValue::from_static("https://grok.com/"));
-        headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
-        headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
-        headers.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
+        let mut headers = self.static_headers.clone();
 
         let pair = match self.token_provider {
             Some(ref provider) => match provider.generate(path, method).await {
@@ -179,13 +182,13 @@ impl GrokClient {
     }
 
     async fn request(&self, method: wreq::Method, path: &str) -> Result<wreq::RequestBuilder> {
-        let url = self.url(path);
-        let headers = self
-            .build_headers(&format!("/rest/app-chat/{path}"), method.as_str())
-            .await;
+        let full_path = format!("/rest/app-chat/{}", path.trim_start_matches('/'));
+        let url = format!("{}{full_path}", self.base_url);
+        let headers = self.build_headers(&full_path, method.as_str()).await;
         Ok(self.http.request(method, &url).headers(headers))
     }
 
+    #[inline]
     async fn send(&self, builder: wreq::RequestBuilder) -> Result<Response> {
         let response = builder.send().await.map_err(GrokError::Request)?;
         self.check_response(response).await
@@ -270,6 +273,7 @@ impl GrokClient {
         self.json(response).await
     }
 
+    #[inline]
     async fn check_response(&self, response: Response) -> Result<Response> {
         let status = response.status();
 
@@ -292,10 +296,15 @@ impl GrokClient {
                 }
             }
             StatusCode::TOO_MANY_REQUESTS => {
+                let retry_after = response
+                    .headers()
+                    .get("retry-after")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse::<u64>().ok());
                 let body = response.text().await.unwrap_or_default();
                 Err(GrokError::RateLimited {
                     message: body,
-                    wait_seconds: None,
+                    wait_seconds: retry_after,
                     limit_type: RateLimitType::User,
                 })
             }

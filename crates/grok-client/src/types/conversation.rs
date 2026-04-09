@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::common::ConversationId;
+use super::common::{ConversationId, Timestamp};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,10 +12,10 @@ pub struct Conversation {
     pub title: Option<String>,
 
     #[serde(default)]
-    pub create_time: Option<String>,
+    pub create_time: Option<Timestamp>,
 
     #[serde(default)]
-    pub update_time: Option<String>,
+    pub update_time: Option<Timestamp>,
 
     #[serde(default)]
     pub starred: Option<bool>,

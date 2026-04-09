@@ -1,5 +1,6 @@
 use crate::client::GrokClient;
 use crate::error::Result;
+use crate::types::common::GoogleDriveFileId;
 
 impl GrokClient {
     pub async fn list_google_drive_files(&self, query: Option<&str>) -> Result<serde_json::Value> {
@@ -12,7 +13,10 @@ impl GrokClient {
             .await
     }
 
-    pub async fn read_google_drive_file(&self, id: &str) -> Result<serde_json::Value> {
+    pub async fn read_google_drive_file(
+        &self,
+        id: &GoogleDriveFileId,
+    ) -> Result<serde_json::Value> {
         self.get_json(&format!("google-drive/files/{id}")).await
     }
 }

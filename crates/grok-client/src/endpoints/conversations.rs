@@ -1,10 +1,11 @@
 use crate::client::GrokClient;
 use crate::error::Result;
-use crate::types::common::ConversationId;
+use crate::types::common::{ConversationId, WorkspaceId};
 use crate::types::conversation::{ConversationList, UpdateConversationRequest};
 
 #[derive(Debug, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ListConversationsQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page_size: Option<u32>,
@@ -16,7 +17,38 @@ pub struct ListConversationsQuery {
     pub filter_is_starred: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub workspace_id: Option<String>,
+    pub workspace_id: Option<WorkspaceId>,
+}
+
+impl ListConversationsQuery {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn page_size(mut self, size: u32) -> Self {
+        self.page_size = Some(size);
+        self
+    }
+
+    #[must_use]
+    pub fn page_token(mut self, token: impl Into<String>) -> Self {
+        self.page_token = Some(token.into());
+        self
+    }
+
+    #[must_use]
+    pub fn starred(mut self, starred: bool) -> Self {
+        self.filter_is_starred = Some(starred);
+        self
+    }
+
+    #[must_use]
+    pub fn workspace(mut self, id: WorkspaceId) -> Self {
+        self.workspace_id = Some(id);
+        self
+    }
 }
 
 impl GrokClient {
@@ -71,13 +103,13 @@ impl GrokClient {
     pub async fn restore_conversation(&self, id: &ConversationId) -> Result<()> {
         #[derive(serde::Serialize)]
         #[serde(rename_all = "camelCase")]
-        struct Body {
-            conversation_id: String,
+        struct Body<'a> {
+            conversation_id: &'a ConversationId,
         }
         self.post(
             "conversations/restore",
             &Body {
-                conversation_id: id.to_string(),
+                conversation_id: id,
             },
         )
         .await?;

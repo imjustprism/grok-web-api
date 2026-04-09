@@ -2,11 +2,11 @@ use wreq::Response;
 
 use crate::client::GrokClient;
 use crate::error::Result;
-use crate::types::common::ResponseId;
+use crate::types::common::{ResponseId, VoiceId};
 use crate::types::voice::{ShareVoiceChatRequest, TtsRequest};
 
 impl GrokClient {
-    async fn get_voice_response(&self, path: &str, voice_id: Option<&str>) -> Result<Response> {
+    async fn get_voice_response(&self, path: &str, voice_id: Option<&VoiceId>) -> Result<Response> {
         match voice_id {
             Some(vid) => {
                 #[derive(serde::Serialize)]
@@ -14,7 +14,13 @@ impl GrokClient {
                 struct Q<'a> {
                     voice_id: &'a str,
                 }
-                self.get_with_query(path, &Q { voice_id: vid }).await
+                self.get_with_query(
+                    path,
+                    &Q {
+                        voice_id: vid.as_str(),
+                    },
+                )
+                .await
             }
             None => self.get(path).await,
         }
@@ -23,7 +29,7 @@ impl GrokClient {
     pub async fn read_response(
         &self,
         response_id: &ResponseId,
-        voice_id: Option<&str>,
+        voice_id: Option<&VoiceId>,
     ) -> Result<Response> {
         self.get_voice_response(&format!("read-response/{response_id}"), voice_id)
             .await
@@ -32,7 +38,7 @@ impl GrokClient {
     pub async fn read_response_audio(
         &self,
         response_id: &ResponseId,
-        voice_id: Option<&str>,
+        voice_id: Option<&VoiceId>,
     ) -> Result<Response> {
         self.get_voice_response(&format!("read-response-audio/{response_id}"), voice_id)
             .await

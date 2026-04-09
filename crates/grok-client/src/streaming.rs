@@ -1,5 +1,6 @@
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
+use memchr::memchr;
 use pin_project_lite::pin_project;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -41,7 +42,7 @@ pub enum StreamChunk {
     Unknown(serde_json::Value),
 }
 
-#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct WebSearchResult {
@@ -51,6 +52,8 @@ pub struct WebSearchResult {
     pub url: Option<String>,
     #[serde(default)]
     pub snippet: Option<String>,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 pin_project! {
@@ -137,7 +140,7 @@ where
         }
 
         loop {
-            if let Some(newline_pos) = this.buffer.find('\n') {
+            if let Some(newline_pos) = memchr(b'\n', this.buffer.as_bytes()) {
                 let line_end = newline_pos + 1;
                 let trimmed = this.buffer[..newline_pos].trim();
 
@@ -190,76 +193,142 @@ where
     }
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawLine {
+    #[serde(default)]
+    result: Option<RawResult>,
+    #[serde(default)]
+    error: Option<RawError>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawResult {
+    #[serde(default)]
+    conversation: Option<RawConversation>,
+    #[serde(default)]
+    response: Option<RawResponse>,
+    #[serde(default)]
+    token: Option<String>,
+    #[serde(default)]
+    is_thinking: bool,
+    #[serde(default)]
+    is_soft_stop: bool,
+    #[serde(default)]
+    web_search_results: Option<Vec<WebSearchResult>>,
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    generated_image_url: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawConversation {
+    #[serde(default)]
+    conversation_id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawResponse {
+    #[serde(default)]
+    token: Option<String>,
+    #[serde(default)]
+    is_thinking: bool,
+    #[serde(default)]
+    is_soft_stop: bool,
+    #[serde(default)]
+    web_search_results: Option<Vec<WebSearchResult>>,
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    generated_image_url: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct RawError {
+    #[serde(default)]
+    message: Option<String>,
+}
+
+#[inline]
 fn parse_ndjson_line(line: &str) -> Result<Option<StreamChunk>> {
-    let value: serde_json::Value = serde_json::from_str(line)
-        .map_err(|e| GrokError::StreamParse(format!("failed to parse NDJSON line: {e}: {line}")))?;
+    let raw: RawLine = serde_json::from_str(line)
+        .map_err(|e| GrokError::StreamParse(format!("failed to parse NDJSON: {e}")))?;
 
-    let result = &value["result"];
+    if let Some(err) = raw.error {
+        if let Some(msg) = err.message {
+            return Ok(Some(StreamChunk::Error { message: msg }));
+        }
+    }
 
-    if let Some(conv) = result.get("conversation") {
-        if let Some(id) = conv.get("conversationId").and_then(|v| v.as_str()) {
+    let Some(result) = raw.result else {
+        return Ok(None);
+    };
+
+    if let Some(conv) = &result.conversation {
+        if let Some(id) = &conv.conversation_id {
             return Ok(Some(StreamChunk::ConversationCreated {
                 conversation_id: ConversationId::new(id),
             }));
         }
     }
 
-    let token_source = result.get("response").unwrap_or(result);
+    let (token, is_thinking, is_soft_stop, search, query, image) =
+        if let Some(ref resp) = result.response {
+            (
+                resp.token.as_deref(),
+                resp.is_thinking,
+                resp.is_soft_stop,
+                resp.web_search_results.as_ref(),
+                resp.query.as_ref(),
+                resp.generated_image_url.as_ref(),
+            )
+        } else {
+            (
+                result.token.as_deref(),
+                result.is_thinking,
+                result.is_soft_stop,
+                result.web_search_results.as_ref(),
+                result.query.as_ref(),
+                result.generated_image_url.as_ref(),
+            )
+        };
 
-    if let Some(token) = token_source.get("token").and_then(|v| v.as_str()) {
-        let is_thinking = token_source
-            .get("isThinking")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let is_soft_stop = token_source
-            .get("isSoftStop")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        if is_soft_stop && token.is_empty() {
+    if let Some(tok) = token {
+        if is_soft_stop && tok.is_empty() {
             return Ok(Some(StreamChunk::Done));
         }
-
-        if is_thinking {
-            return Ok(Some(StreamChunk::ThinkingToken {
-                text: token.to_owned(),
-            }));
-        }
-
-        return Ok(Some(StreamChunk::Token {
-            text: token.to_owned(),
-            is_soft_stop,
-        }));
+        return if is_thinking {
+            Ok(Some(StreamChunk::ThinkingToken {
+                text: tok.to_owned(),
+            }))
+        } else {
+            Ok(Some(StreamChunk::Token {
+                text: tok.to_owned(),
+                is_soft_stop,
+            }))
+        };
     }
 
-    if let Some(search) = token_source.get("webSearchResults") {
-        let results: Vec<WebSearchResult> =
-            serde_json::from_value(search.clone()).unwrap_or_default();
-        let query = token_source
-            .get("query")
-            .and_then(|v| v.as_str())
-            .map(String::from);
+    if let Some(results) = search {
         return Ok(Some(StreamChunk::WebSearch {
-            query,
-            results,
-            raw: value,
+            query: query.cloned(),
+            results: results.clone(),
+            raw: serde_json::from_str(line).unwrap_or_default(),
         }));
     }
 
-    if let Some(img) = token_source.get("generatedImageUrl") {
+    if let Some(url) = image {
         return Ok(Some(StreamChunk::ImageGenerated {
-            url: img.as_str().map(String::from),
-            raw: value,
+            url: Some(url.clone()),
+            raw: serde_json::from_str(line).unwrap_or_default(),
         }));
     }
 
-    if let Some(error) = value.get("error") {
-        if let Some(msg) = error.get("message").and_then(|v| v.as_str()) {
-            return Ok(Some(StreamChunk::Error {
-                message: msg.to_owned(),
-            }));
-        }
-    }
-
-    Ok(Some(StreamChunk::Unknown(value)))
+    Ok(Some(StreamChunk::Unknown(
+        serde_json::from_str(line).unwrap_or_default(),
+    )))
 }

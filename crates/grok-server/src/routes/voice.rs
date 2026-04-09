@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use crate::error::{ApiError, AppJson};
 use crate::state::AppState;
-use grok_client::types::common::ResponseId;
+use grok_client::types::common::{ResponseId, VoiceId};
 use grok_client::types::voice::TtsRequest;
 
 #[derive(Debug, Deserialize)]
@@ -39,7 +39,10 @@ pub async fn read_response(
 ) -> Result<Response, ApiError> {
     let response = state
         .client
-        .read_response(&ResponseId::new(response_id), query.voice_id.as_deref())
+        .read_response(
+            &ResponseId::new(response_id),
+            query.voice_id.map(VoiceId::new).as_ref(),
+        )
         .await?;
     Ok(stream_binary(response, "application/octet-stream"))
 }
@@ -51,7 +54,10 @@ pub async fn read_response_audio(
 ) -> Result<Response, ApiError> {
     let response = state
         .client
-        .read_response_audio(&ResponseId::new(response_id), query.voice_id.as_deref())
+        .read_response_audio(
+            &ResponseId::new(response_id),
+            query.voice_id.map(VoiceId::new).as_ref(),
+        )
         .await?;
     Ok(stream_binary(response, "audio/mpeg"))
 }

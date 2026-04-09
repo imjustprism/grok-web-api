@@ -1,6 +1,6 @@
 use crate::client::GrokClient;
 use crate::error::Result;
-use crate::types::common::{ConversationId, ShareLinkId};
+use crate::types::common::{ConversationId, ShareLinkId, SharedArtifactId};
 use crate::types::sharing::{ShareArtifactRequest, ShareConversationRequest};
 
 impl GrokClient {
@@ -43,7 +43,7 @@ impl GrokClient {
         Ok(())
     }
 
-    pub async fn get_shared_artifact(&self, id: &str) -> Result<serde_json::Value> {
+    pub async fn get_shared_artifact(&self, id: &SharedArtifactId) -> Result<serde_json::Value> {
         self.get_json(&format!("shared_artifacts/{id}")).await
     }
 }

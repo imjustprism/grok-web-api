@@ -4,7 +4,7 @@ use axum::response::IntoResponse;
 
 use crate::error::{ApiError, AppJson};
 use crate::state::AppState;
-use grok_client::types::common::{ConversationId, ShareLinkId};
+use grok_client::types::common::{ConversationId, ShareLinkId, SharedArtifactId};
 use grok_client::types::sharing::{ShareArtifactRequest, ShareConversationRequest};
 
 pub async fn share_conversation(
@@ -58,7 +58,10 @@ pub async fn get_shared_artifact(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let result = state.client.get_shared_artifact(&id).await?;
+    let result = state
+        .client
+        .get_shared_artifact(&SharedArtifactId::new(id))
+        .await?;
     Ok(Json(result))
 }
 

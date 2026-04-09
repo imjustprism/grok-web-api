@@ -183,9 +183,18 @@ pub fn router(state: AppState) -> Router {
     public
         .merge(api)
         .merge(raw)
+        .fallback(fallback_404)
         .layer(middleware::from_fn_with_state(
             state.clone(),
             request_tracking,
         ))
         .with_state(state)
+}
+
+async fn fallback_404(request: Request) -> impl IntoResponse {
+    crate::error::ApiError::not_found(format!(
+        "No route matched: {} {}",
+        request.method(),
+        request.uri().path()
+    ))
 }

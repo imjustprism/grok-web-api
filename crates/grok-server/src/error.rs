@@ -81,6 +81,10 @@ impl ApiError {
     pub fn bad_request(detail: String) -> Self {
         Self::new("bad_request", "Bad Request", 400, detail)
     }
+
+    pub fn not_found(detail: String) -> Self {
+        Self::new("not_found", "Not Found", 404, detail)
+    }
 }
 
 impl From<JsonRejection> for ApiError {

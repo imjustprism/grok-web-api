@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use super::common::{CompanionId, ResponseId, WorkspaceId};
+use super::common::{
+    CollectionId, CompanionId, ConnectorId, FollowUpType, ImagineProjectId, ModeId, ResponseId,
+    TemplateId, WorkspaceId,
+};
 use super::models::{DeepsearchPreset, ModelMode, ModelName};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -68,7 +71,7 @@ pub struct ChatOptions {
     pub disable_memory: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_parent_id: Option<String>,
+    pub thread_parent_id: Option<ResponseId>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_mode: Option<ModelMode>,
@@ -89,7 +92,7 @@ pub struct ChatOptions {
     pub model_override_key: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mode_id: Option<String>,
+    pub mode_id: Option<ModeId>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled_skills: Option<Vec<String>>,
@@ -156,13 +159,13 @@ pub struct NewConversationRequest {
     pub supported_fast_tools: Option<serde_json::Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub template_id: Option<String>,
+    pub template_id: Option<TemplateId>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub collection_ids: Option<Vec<String>>,
+    pub collection_ids: Option<Vec<CollectionId>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub connector_ids: Option<Vec<String>>,
+    pub connector_ids: Option<Vec<ConnectorId>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connectors: Option<Vec<serde_json::Value>>,
@@ -183,7 +186,7 @@ pub struct NewConversationRequest {
     pub disable_personalization: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub imagine_project_id: Option<String>,
+    pub imagine_project_id: Option<ImagineProjectId>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_cancel_current_inflight_requests: Option<bool>,
@@ -324,6 +327,15 @@ pub struct QuickAnswerRequest {
     pub query: String,
 }
 
+impl QuickAnswerRequest {
+    #[must_use]
+    pub fn new(query: impl Into<String>) -> Self {
+        Self {
+            query: query.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -340,7 +352,7 @@ pub struct AddResponseRequest {
     pub parent_quoted_text: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub follow_up_type: Option<String>,
+    pub follow_up_type: Option<FollowUpType>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume_response_id: Option<ResponseId>,

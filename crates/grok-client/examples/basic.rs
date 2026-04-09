@@ -1,7 +1,7 @@
+use futures::StreamExt;
 use grok_client::{
     CollectedResponse, GrokAuth, GrokClient, ModelName, NewConversationRequest, StreamChunk,
 };
-use futures::StreamExt;
 
 #[tokio::main]
 async fn main() -> grok_client::Result<()> {

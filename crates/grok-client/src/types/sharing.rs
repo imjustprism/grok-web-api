@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::common::{ArtifactId, ArtifactVersionId, ResponseId, ShareLinkId};
+use super::common::{ArtifactId, ArtifactVersionId, ResponseId, ShareLinkId, Timestamp};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,7 +52,7 @@ pub struct ShareLink {
     pub title: Option<String>,
 
     #[serde(default)]
-    pub create_time: Option<String>,
+    pub create_time: Option<Timestamp>,
 
     #[serde(default)]
     pub view_count: Option<u64>,

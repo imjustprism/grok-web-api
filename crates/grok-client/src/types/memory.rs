@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::common::MemoryId;
+use super::common::{MemoryId, Timestamp};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,7 +13,7 @@ pub struct Memory {
     pub content: Option<String>,
 
     #[serde(default)]
-    pub create_time: Option<String>,
+    pub create_time: Option<Timestamp>,
 
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,

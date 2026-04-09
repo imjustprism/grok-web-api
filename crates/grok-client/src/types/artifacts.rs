@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::common::{ArtifactId, ArtifactVersionId};
+use super::common::{ArtifactId, ArtifactType, ArtifactVersionId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,7 +13,7 @@ pub struct Artifact {
     pub title: Option<String>,
 
     #[serde(default)]
-    pub artifact_type: Option<String>,
+    pub artifact_type: Option<ArtifactType>,
 
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
@@ -35,6 +35,7 @@ pub struct ArtifactContent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct UpdateArtifactRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub full_artifact: Option<String>,

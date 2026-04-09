@@ -1,6 +1,7 @@
 use axum::Json;
 use axum::extract::State;
 use axum::response::IntoResponse;
+use grok_client::types::common::CodeLanguage;
 use serde::Deserialize;
 
 use crate::error::{ApiError, AppJson};
@@ -8,7 +9,7 @@ use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct RunCodeBody {
-    pub language: String,
+    pub language: CodeLanguage,
     pub code: String,
 }
 

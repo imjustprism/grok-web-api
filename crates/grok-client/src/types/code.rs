@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 
+use super::common::CodeLanguage;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct RunCodeRequest {
-    pub language: String,
+    pub language: CodeLanguage,
     pub code: String,
 }
 
