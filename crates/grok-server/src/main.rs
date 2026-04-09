@@ -4,7 +4,7 @@ use tokio::net::TcpListener;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 mod auth;
 mod config;
@@ -31,17 +31,22 @@ async fn main() -> anyhow::Result<()> {
     debug!("Starting grok-web-api server");
 
     if config.grok_sso_cookie.is_empty() {
-        eprintln!("ERROR: GROK_SSO_COOKIE is not set.");
-        eprintln!("  1. Log in to grok.com in your browser");
-        eprintln!("  2. Open DevTools (F12) > Application > Cookies > grok.com");
-        eprintln!("  3. Copy the value of 'sso' and 'sso-rw' cookies");
-        eprintln!("  4. Set GROK_SSO_COOKIE and GROK_SSO_RW_COOKIE environment variables");
+        error!("GROK_SSO_COOKIE is not set");
+        error!("  1. Log in to grok.com in your browser");
+        error!("  2. Open DevTools (F12) > Application > Cookies > grok.com");
+        error!("  3. Copy the value of 'sso' and 'sso-rw' cookies");
+        error!("  4. Set GROK_SSO_COOKIE and GROK_SSO_RW_COOKIE environment variables");
         std::process::exit(1);
     }
 
     if config.challenge_header_hex.is_none() && config.token_provider_url.is_none() {
-        eprintln!("WARNING: No challenge config or token provider set. POST requests will be rejected by anti-bot.");
-        eprintln!("  Extract values: curl http://localhost:{}/setup", config.port);
+        warn!(
+            "No challenge config or token provider set. POST requests will be rejected by anti-bot"
+        );
+        warn!(
+            "  Extract values: curl http://localhost:{}/setup",
+            config.port
+        );
     }
 
     let grok_auth = grok_client::GrokAuth::with_extra_cookies(
@@ -59,22 +64,16 @@ async fn main() -> anyhow::Result<()> {
     }
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    {
-        let header = config.challenge_header_hex.clone();
-        let suffix = config.challenge_suffix.clone();
-        if let (Some(h), Some(s)) = (header, suffix) {
-            let trailer = config.challenge_trailer.unwrap_or(3);
-            let challenge = grok_client::ChallengeConfig::new(&h, &s, trailer)
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
-            grok_client = grok_client.with_token_provider(challenge);
-            debug!("Challenge token generator enabled");
-        }
-    }
-
-    if let Some(ref token_url) = config.token_provider_url {
+    if let (Some(h), Some(s)) = (&config.challenge_header_hex, &config.challenge_suffix) {
+        let trailer = config.challenge_trailer.unwrap_or(3);
+        let challenge =
+            grok_client::ChallengeConfig::new(h, s, trailer).map_err(|e| anyhow::anyhow!("{e}"))?;
+        grok_client = grok_client.with_token_provider(challenge);
+        debug!("Challenge token generator enabled");
+    } else if let Some(ref token_url) = config.token_provider_url {
         debug!(url = %token_url, "Using external token provider");
-        let provider = grok_client::HttpTokenProvider::new(token_url)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let provider =
+            grok_client::HttpTokenProvider::new(token_url).map_err(|e| anyhow::anyhow!("{e}"))?;
         grok_client = grok_client.with_token_provider(provider);
     }
 
@@ -86,10 +85,14 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => warn!("Could not validate Grok session: {e}"),
     }
 
-    let state = AppState::new(grok_client, config.clone());
+    let check_interval = Duration::from_secs(config.session_check_interval_secs);
+    let addr: SocketAddr = format!("{}:{}", config.host, config.port)
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Invalid bind address: {e}"))?;
+
+    let state = AppState::new(grok_client, config);
 
     let health_state = state.clone();
-    let check_interval = Duration::from_secs(config.session_check_interval_secs);
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(check_interval);
         loop {
@@ -107,10 +110,6 @@ async fn main() -> anyhow::Result<()> {
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http());
 
-    let addr: SocketAddr = format!("{}:{}", config.host, config.port)
-        .parse()
-        .map_err(|e| anyhow::anyhow!("Invalid bind address: {e}"))?;
-
     debug!(%addr, "Listening");
 
     let listener = TcpListener::bind(addr).await?;
@@ -127,9 +126,12 @@ async fn shutdown_signal() {
 
     #[cfg(unix)]
     {
-        let mut sigterm =
+        let Ok(mut sigterm) =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .expect("sigterm handler failed");
+        else {
+            let _ = ctrl_c.await;
+            return;
+        };
         tokio::select! {
             _ = ctrl_c => {},
             _ = sigterm.recv() => {},
@@ -138,6 +140,6 @@ async fn shutdown_signal() {
 
     #[cfg(not(unix))]
     {
-        ctrl_c.await.expect("ctrl+c handler failed");
+        let _ = ctrl_c.await;
     }
 }

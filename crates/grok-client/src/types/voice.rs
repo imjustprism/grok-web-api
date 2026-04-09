@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct TtsRequest {
     pub articles: Vec<serde_json::Value>,
 
@@ -17,26 +18,35 @@ pub struct TtsRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct TtsResponse {
     #[serde(default)]
     pub result: Option<TtsResult>,
 
     #[serde(default)]
     pub error: Option<serde_json::Value>,
+
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct TtsResult {
     #[serde(default)]
     pub data: Option<String>,
 
     #[serde(default)]
     pub content_type: Option<String>,
+
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ShareVoiceChatRequest {
     pub video_bytes: String,
     pub text: String,

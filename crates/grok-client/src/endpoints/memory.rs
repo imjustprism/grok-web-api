@@ -1,23 +1,26 @@
 use crate::client::GrokClient;
 use crate::error::Result;
-use crate::types::common::{CompanionId, MemoryId};
+use crate::types::common::{CompanionId, ConversationId, MemoryId};
 use crate::types::memory::{EditMemoryRequest, MemoryBlurb};
 
 impl GrokClient {
-    pub async fn get_memory(&self, conversation_ids: &[String]) -> Result<serde_json::Value> {
+    pub async fn get_memory(
+        &self,
+        conversation_ids: &[ConversationId],
+    ) -> Result<serde_json::Value> {
         #[derive(serde::Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Body<'a> {
-            conversation_ids: &'a [String],
+            conversation_ids: &'a [ConversationId],
         }
         self.post_json("memory", &Body { conversation_ids }).await
     }
 
-    pub async fn delete_memory(&self, conversation_ids: &[String]) -> Result<()> {
+    pub async fn delete_memory(&self, conversation_ids: &[ConversationId]) -> Result<()> {
         #[derive(serde::Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Q<'a> {
-            conversation_ids: &'a [String],
+            conversation_ids: &'a [ConversationId],
         }
         self.delete_with_query("memory", &Q { conversation_ids })
             .await?;

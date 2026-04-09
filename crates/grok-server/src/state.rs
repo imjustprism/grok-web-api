@@ -16,6 +16,7 @@ pub struct AppState {
 }
 
 impl AppState {
+    #[must_use]
     pub fn new(client: GrokClient, config: Config) -> Self {
         Self {
             client: Arc::new(client),

@@ -21,6 +21,7 @@ pub struct Memory {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct MemoryList {
     #[serde(default)]
     pub memories: Vec<Memory>,
@@ -31,12 +32,14 @@ pub struct MemoryList {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct EditMemoryRequest {
     pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct MemoryBlurb {
     #[serde(default)]
     pub memory_content: Option<String>,

@@ -22,11 +22,7 @@ pub mod sharing;
 pub mod suggestions;
 pub mod voice;
 
-async fn request_tracking(
-    State(state): State<AppState>,
-    request: Request,
-    next: Next,
-) -> Response {
+async fn request_tracking(State(state): State<AppState>, request: Request, next: Next) -> Response {
     state.record_request();
     let request_id = uuid::Uuid::new_v4().to_string();
     let mut response = next.run(request).await;
@@ -40,7 +36,7 @@ async fn chat_completions_get() -> impl IntoResponse {
     axum::Json(json!({
         "message": "POST a ChatCompletion request to this endpoint. See /setup for configuration help.",
         "example": {
-            "model": "grok-3",
+            "model": "auto",
             "messages": [{"role": "user", "content": "Hello"}],
             "stream": false
         }

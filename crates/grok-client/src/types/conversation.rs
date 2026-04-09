@@ -26,6 +26,7 @@ pub struct Conversation {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct UpdateConversationRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -36,6 +37,7 @@ pub struct UpdateConversationRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ConversationList {
     #[serde(default)]
     pub conversations: Vec<Conversation>,

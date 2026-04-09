@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::common::{CompanionId, WorkspaceId};
+use super::common::{CompanionId, ResponseId, WorkspaceId};
 use super::models::{DeepsearchPreset, ModelMode, ModelName};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -108,9 +108,6 @@ pub struct NewConversationRequest {
     pub temporary: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub return_raw_grok_in_xai_request: Option<bool>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub send_final_metadata: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -160,9 +157,6 @@ pub struct NewConversationRequest {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_id: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub disable_self_harm_short_circuit: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collection_ids: Option<Vec<String>>,
@@ -294,6 +288,7 @@ impl NewConversationRequestBuilder {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct QuickAnswerRequest {
     pub query: String,
 }
@@ -308,7 +303,7 @@ pub struct AddResponseRequest {
     pub options: ChatOptions,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_response_id: Option<String>,
+    pub parent_response_id: Option<ResponseId>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_quoted_text: Option<String>,
@@ -317,7 +312,7 @@ pub struct AddResponseRequest {
     pub follow_up_type: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub resume_response_id: Option<String>,
+    pub resume_response_id: Option<ResponseId>,
 
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub extra: Option<serde_json::Map<String, serde_json::Value>>,

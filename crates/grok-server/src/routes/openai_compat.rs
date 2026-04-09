@@ -6,6 +6,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
+use crate::routes::models::MODE_IDS;
 use crate::state::AppState;
 use grok_client::streaming::StreamChunk;
 use grok_client::types::chat::NewConversationRequest;
@@ -144,22 +145,25 @@ pub async fn chat_completions(
             acc
         });
 
-    let model_str = request.model.unwrap_or_else(|| "grok-3".into());
-    let (base_model, mode) = parse_model_string(&model_str);
+    let model_str = request.model.unwrap_or_else(|| "auto".into());
 
-    grok_req.options.model_name = Some(match base_model {
-        "grok-2" => ModelName::Grok2,
-        "grok-3" => ModelName::Grok3,
-        "grok-3-mini" => ModelName::Grok3Mini,
-        "grok-4" => ModelName::Grok4,
-        "grok-4-mini" => ModelName::Grok4Mini,
-        "grok-420" => ModelName::Grok420,
-        "grok-3-mini-companion" => ModelName::Grok3MiniCompanion,
-        other => ModelName::Other(other.to_owned()),
-    });
+    if MODE_IDS.contains(&model_str.as_str()) {
+        grok_req.options.mode_id = Some(model_str.clone());
+    } else {
+        let (base_model, mode) = parse_model_string(&model_str);
 
-    if let Some(m) = mode {
-        grok_req.options.model_mode = Some(m);
+        grok_req.options.model_name = Some(match base_model {
+            "grok-2" => ModelName::Grok2,
+            "grok-3" => ModelName::Grok3,
+            "grok-3-mini" => ModelName::Grok3Mini,
+            "grok-4" => ModelName::Grok4,
+            "grok-4-mini" => ModelName::Grok4Mini,
+            other => ModelName::Other(other.to_owned()),
+        });
+
+        if let Some(m) = mode {
+            grok_req.options.model_mode = Some(m);
+        }
     }
 
     if request.stream {

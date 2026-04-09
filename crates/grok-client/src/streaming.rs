@@ -1,8 +1,8 @@
-use std::pin::Pin;
-use std::task::{Context, Poll};
 use bytes::Bytes;
 use futures::Stream;
 use pin_project_lite::pin_project;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use crate::error::{GrokError, Result};
 use crate::types::common::ConversationId;
@@ -39,6 +39,7 @@ impl<S> GrokStream<S>
 where
     S: Stream<Item = std::result::Result<Bytes, wreq::Error>>,
 {
+    #[must_use]
     pub fn new(inner: S) -> Self {
         Self {
             inner,
@@ -129,28 +130,32 @@ fn parse_ndjson_line(line: &str) -> Result<Option<StreamChunk>> {
         }
     }
 
-    if let Some(response) = result.get("response") {
-        if let Some(token) = response.get("token").and_then(|v| v.as_str()) {
-            let is_soft_stop = response
-                .get("isSoftStop")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
+    let token_source = result.get("response").unwrap_or(result);
 
-            if is_soft_stop && token.is_empty() {
-                return Ok(Some(StreamChunk::Done));
-            }
+    if let Some(token) = token_source.get("token").and_then(|v| v.as_str()) {
+        let is_thinking = token_source
+            .get("isThinking")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let is_soft_stop = token_source
+            .get("isSoftStop")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
-            return Ok(Some(StreamChunk::Token {
-                text: token.to_owned(),
-                is_soft_stop,
-            }));
+        if is_soft_stop && token.is_empty() {
+            return Ok(Some(StreamChunk::Done));
         }
 
-        if let Some(token) = response.get("thinkingToken").and_then(|v| v.as_str()) {
+        if is_thinking {
             return Ok(Some(StreamChunk::ThinkingToken {
                 text: token.to_owned(),
             }));
         }
+
+        return Ok(Some(StreamChunk::Token {
+            text: token.to_owned(),
+            is_soft_stop,
+        }));
     }
 
     if let Some(error) = value.get("error") {

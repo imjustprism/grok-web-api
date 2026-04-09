@@ -5,12 +5,16 @@ use super::conversation::Conversation;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct GrokEnvelope<T> {
     #[serde(default)]
     pub result: Option<T>,
 
     #[serde(default)]
     pub error: Option<GrokApiError>,
+
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +43,9 @@ pub struct NewConversationResult {
 
     #[serde(default)]
     pub title: Option<GeneratedTitle>,
+
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +79,7 @@ pub struct GrokResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct GeneratedTitle {
     #[serde(default)]
     pub title: Option<String>,

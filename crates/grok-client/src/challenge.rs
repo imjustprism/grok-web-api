@@ -11,6 +11,7 @@ const HEADER_LEN: usize = 49;
 const TOKEN_LEN: usize = HEADER_LEN + 4 + 16 + 1;
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ChallengeConfig {
     static_header: [u8; HEADER_LEN],
     static_suffix: String,
@@ -18,11 +19,7 @@ pub struct ChallengeConfig {
 }
 
 impl ChallengeConfig {
-    pub fn new(
-        static_header_hex: &str,
-        static_suffix: &str,
-        trailer_byte: u8,
-    ) -> Result<Self> {
+    pub fn new(static_header_hex: &str, static_suffix: &str, trailer_byte: u8) -> Result<Self> {
         let decoded = hex_decode(static_header_hex)
             .map_err(|e| GrokError::Config(format!("Invalid static_header hex: {e}")))?;
 
@@ -77,7 +74,9 @@ impl crate::client::TokenProvider for ChallengeConfig {
         &self,
         path: &str,
         method: &str,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<crate::client::TokenPair>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<crate::client::TokenPair>> + Send + '_>,
+    > {
         let (statsig_id, request_id) = self.generate_headers(path, method);
         Box::pin(async move {
             Ok(crate::client::TokenPair {

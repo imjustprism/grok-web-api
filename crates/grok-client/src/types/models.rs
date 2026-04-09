@@ -34,10 +34,6 @@ pub enum ModelName {
     GrokImagineImagePro,
     #[serde(rename = "grok-imagine-video")]
     GrokImagineVideo,
-    #[serde(rename = "grok-420")]
-    Grok420,
-    #[serde(rename = "grok-3-mini-companion")]
-    Grok3MiniCompanion,
     #[serde(untagged)]
     Other(String),
 }
@@ -61,8 +57,6 @@ impl ModelName {
             Self::GrokImagineImage => "grok-imagine-image",
             Self::GrokImagineImagePro => "grok-imagine-image-pro",
             Self::GrokImagineVideo => "grok-imagine-video",
-            Self::Grok420 => "grok-420",
-            Self::Grok3MiniCompanion => "grok-3-mini-companion",
             Self::Other(s) => s,
         }
     }
@@ -100,12 +94,14 @@ pub enum ModelMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub enum DeepsearchPreset {
-    Default,
-    Thorough,
-    Quick,
+    #[serde(rename = "deepsearch")]
+    Deepsearch,
+    #[serde(rename = "deepersearch")]
+    Deepersearch,
+    #[serde(rename = "think")]
+    Think,
     #[serde(untagged)]
     Other(String),
 }

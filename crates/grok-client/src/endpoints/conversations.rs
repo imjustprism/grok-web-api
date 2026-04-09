@@ -100,8 +100,11 @@ impl GrokClient {
             #[serde(skip_serializing_if = "std::ops::Not::not")]
             include_threads: bool,
         }
-        self.get_query_json(&format!("conversations/{id}/responses"), &Q { include_threads })
-            .await
+        self.get_query_json(
+            &format!("conversations/{id}/responses"),
+            &Q { include_threads },
+        )
+        .await
     }
 
     pub async fn list_deleted_conversations(
@@ -117,8 +120,14 @@ impl GrokClient {
             #[serde(skip_serializing_if = "Option::is_none")]
             page_token: Option<&'a str>,
         }
-        self.get_query_json("conversations/deleted", &Q { page_size, page_token })
-            .await
+        self.get_query_json(
+            "conversations/deleted",
+            &Q {
+                page_size,
+                page_token,
+            },
+        )
+        .await
     }
 
     pub async fn delete_all_conversations(&self) -> Result<()> {

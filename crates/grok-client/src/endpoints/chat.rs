@@ -5,7 +5,7 @@ use crate::client::GrokClient;
 use crate::error::Result;
 use crate::streaming::GrokStream;
 use crate::types::chat::{AddResponseRequest, NewConversationRequest, QuickAnswerRequest};
-use crate::types::common::ConversationId;
+use crate::types::common::{ConversationId, ResponseId};
 
 type BoxByteStream =
     Pin<Box<dyn futures::Stream<Item = std::result::Result<bytes::Bytes, wreq::Error>> + Send>>;
@@ -31,8 +31,11 @@ impl GrokClient {
         conversation_id: &ConversationId,
         request: &AddResponseRequest,
     ) -> Result<Response> {
-        self.post_stream(&format!("conversations/{conversation_id}/responses"), request)
-            .await
+        self.post_stream(
+            &format!("conversations/{conversation_id}/responses"),
+            request,
+        )
+        .await
     }
 
     pub async fn add_response(
@@ -63,14 +66,16 @@ impl GrokClient {
         Ok(())
     }
 
-    pub async fn cancel_response(&self, response_id: &str) -> Result<()> {
+    pub async fn cancel_response(&self, response_id: &ResponseId) -> Result<()> {
         self.delete(&format!("conversations/inflight-response/{response_id}"))
             .await?;
         Ok(())
     }
 
-    pub async fn reconnect_response(&self, response_id: &str) -> Result<Response> {
-        self.get(&format!("conversations/reconnect-response-v2/{response_id}"))
-            .await
+    pub async fn reconnect_response(&self, response_id: &ResponseId) -> Result<Response> {
+        self.get(&format!(
+            "conversations/reconnect-response-v2/{response_id}"
+        ))
+        .await
     }
 }

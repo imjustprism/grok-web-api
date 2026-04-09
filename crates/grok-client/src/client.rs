@@ -29,6 +29,7 @@ pub trait TokenProvider: Send + Sync + std::fmt::Debug {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TokenPair {
     pub statsig_id: String,
     pub request_id: String,
@@ -82,10 +83,7 @@ impl TokenProvider for HttpTokenProvider {
 
             let body: serde_json::Value = resp.json().await.map_err(GrokError::Request)?;
             Ok(TokenPair {
-                statsig_id: body["x-statsig-id"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_owned(),
+                statsig_id: body["x-statsig-id"].as_str().unwrap_or("").to_owned(),
                 request_id: body["x-xai-request-id"]
                     .as_str()
                     .map(str::to_owned)
@@ -118,6 +116,7 @@ impl GrokClient {
         })
     }
 
+    #[must_use]
     pub fn with_token_provider(mut self, provider: impl TokenProvider + 'static) -> Self {
         self.token_provider = Some(Arc::new(provider));
         self
@@ -155,7 +154,10 @@ impl GrokClient {
         let pair = match self.token_provider {
             Some(ref provider) => match provider.generate(path, method).await {
                 Ok(pair) => {
-                    debug!("Token provider generated statsig_id ({} chars)", pair.statsig_id.len());
+                    debug!(
+                        "Token provider generated statsig_id ({} chars)",
+                        pair.statsig_id.len()
+                    );
                     pair
                 }
                 Err(e) => {
@@ -232,10 +234,7 @@ impl GrokClient {
         path: &str,
         query: &Q,
     ) -> Result<Response> {
-        let rb = self
-            .request(wreq::Method::DELETE, path)
-            .await?
-            .query(query);
+        let rb = self.request(wreq::Method::DELETE, path).await?.query(query);
         self.send(rb).await
     }
 

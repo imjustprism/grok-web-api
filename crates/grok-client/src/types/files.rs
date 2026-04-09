@@ -4,6 +4,7 @@ use super::common::FileMetadataId;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct UploadFileRequest {
     pub file_name: String,
     pub file_mime_type: String,

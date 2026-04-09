@@ -1,8 +1,8 @@
 use axum::extract::Request;
-use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
+use crate::error::ApiError;
 use crate::state::AppState;
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -31,10 +31,5 @@ pub async fn api_key_auth(
         return next.run(request).await;
     }
 
-    (
-        StatusCode::UNAUTHORIZED,
-        [("content-type", "application/json")],
-        r#"{"error":"unauthorized","message":"Missing or invalid API key"}"#,
-    )
-        .into_response()
+    ApiError::unauthorized().into_response()
 }

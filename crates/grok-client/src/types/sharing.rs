@@ -4,6 +4,7 @@ use super::common::{ArtifactId, ArtifactVersionId, ResponseId, ShareLinkId};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ShareConversationRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_id: Option<ResponseId>,
@@ -23,12 +24,17 @@ pub struct ShareConversationRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ShareConversationResponse {
     pub share_link_id: Option<ShareLinkId>,
+
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ShareArtifactRequest {
     pub response_id: ResponseId,
     pub artifact_id: ArtifactId,
@@ -57,6 +63,7 @@ pub struct ShareLink {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct ShareLinkList {
     #[serde(default)]
     pub share_links: Vec<ShareLink>,

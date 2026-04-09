@@ -42,8 +42,8 @@ pub async fn status(State(state): State<AppState>) -> impl IntoResponse {
 
     let session_valid = state.client.check_session().await.ok();
 
-    let challenge_loaded = state.config.challenge_header_hex.is_some()
-        && state.config.challenge_suffix.is_some();
+    let challenge_loaded =
+        state.config.challenge_header_hex.is_some() && state.config.challenge_suffix.is_some();
 
     let request_count = state.request_count.load(Ordering::Relaxed);
     let last_request_at = state.last_request_at.load(Ordering::Relaxed);

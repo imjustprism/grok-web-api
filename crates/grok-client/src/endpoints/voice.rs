@@ -2,6 +2,7 @@ use wreq::Response;
 
 use crate::client::GrokClient;
 use crate::error::Result;
+use crate::types::common::ResponseId;
 use crate::types::voice::{ShareVoiceChatRequest, TtsRequest};
 
 impl GrokClient {
@@ -21,18 +22,20 @@ impl GrokClient {
 
     pub async fn read_response(
         &self,
-        response_id: &str,
+        response_id: &ResponseId,
         voice_id: Option<&str>,
     ) -> Result<Response> {
-        self.get_voice_response(&format!("read-response/{response_id}"), voice_id).await
+        self.get_voice_response(&format!("read-response/{response_id}"), voice_id)
+            .await
     }
 
     pub async fn read_response_audio(
         &self,
-        response_id: &str,
+        response_id: &ResponseId,
         voice_id: Option<&str>,
     ) -> Result<Response> {
-        self.get_voice_response(&format!("read-response-audio/{response_id}"), voice_id).await
+        self.get_voice_response(&format!("read-response-audio/{response_id}"), voice_id)
+            .await
     }
 
     pub async fn tts(&self, request: &TtsRequest) -> Result<Response> {

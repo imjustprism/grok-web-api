@@ -22,23 +22,24 @@ pub async fn raw_proxy(
 
     let body_bytes = axum::body::to_bytes(request.into_body(), 10 * 1024 * 1024)
         .await
-        .map_err(|e| grok_client::error::GrokError::Config(format!("Failed to read body: {e}")))?;
+        .map_err(|e| ApiError::bad_request(format!("Failed to read body: {e}")))?;
+
+    let parse_json = |bytes: &[u8]| -> Result<serde_json::Value, ApiError> {
+        serde_json::from_slice(bytes)
+            .map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))
+    };
 
     let response = match (&method, body_bytes.is_empty()) {
         (m, true) if *m == Method::GET => state.client.get(&path).await?,
         (m, true) if *m == Method::DELETE => state.client.delete(&path).await?,
         (m, false) if *m == Method::PUT => {
-            let json: serde_json::Value = serde_json::from_slice(&body_bytes)
-                .map_err(|e| grok_client::error::GrokError::Config(format!("Invalid JSON: {e}")))?;
-            state.client.put(&path, &json).await?
+            state.client.put(&path, &parse_json(&body_bytes)?).await?
         }
         _ => {
-            let json: serde_json::Value = if body_bytes.is_empty() {
+            let json = if body_bytes.is_empty() {
                 serde_json::Value::Null
             } else {
-                serde_json::from_slice(&body_bytes).map_err(|e| {
-                    grok_client::error::GrokError::Config(format!("Invalid JSON: {e}"))
-                })?
+                parse_json(&body_bytes)?
             };
             state.client.post(&path, &json).await?
         }

@@ -32,12 +32,13 @@ pub enum GrokError {
     Config(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RateLimitType {
     User,
     Global,
     Model,
+    Other(String),
 }
 
 impl fmt::Display for RateLimitType {
@@ -46,6 +47,7 @@ impl fmt::Display for RateLimitType {
             Self::User => write!(f, "user"),
             Self::Global => write!(f, "global"),
             Self::Model => write!(f, "model"),
+            Self::Other(s) => write!(f, "{s}"),
         }
     }
 }

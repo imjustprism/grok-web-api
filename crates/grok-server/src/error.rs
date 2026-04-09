@@ -34,6 +34,19 @@ impl ApiError {
             retry_after_seconds: None,
         }
     }
+
+    pub fn unauthorized() -> Self {
+        Self::new(
+            "unauthorized",
+            "Unauthorized",
+            401,
+            "Missing or invalid API key".into(),
+        )
+    }
+
+    pub fn bad_request(detail: String) -> Self {
+        Self::new("bad_request", "Bad Request", 400, detail)
+    }
 }
 
 impl From<grok_client::error::GrokError> for ApiError {
