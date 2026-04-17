@@ -29,8 +29,26 @@ impl GrokClient {
         self.get_json(&format!("share_links_data/{id}")).await
     }
 
-    pub async fn list_share_links(&self) -> Result<serde_json::Value> {
-        self.get_json("share_links").await
+    pub async fn list_share_links(
+        &self,
+        page_size: Option<u32>,
+        page_token: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        #[derive(serde::Serialize)]
+        struct Q<'a> {
+            #[serde(rename = "pageSize")]
+            page_size: u32,
+            #[serde(rename = "pageToken", skip_serializing_if = "Option::is_none")]
+            page_token: Option<&'a str>,
+        }
+        self.get_query_json(
+            "share_links",
+            &Q {
+                page_size: page_size.unwrap_or(20),
+                page_token,
+            },
+        )
+        .await
     }
 
     pub async fn clone_share_link(&self, id: &ShareLinkId) -> Result<serde_json::Value> {

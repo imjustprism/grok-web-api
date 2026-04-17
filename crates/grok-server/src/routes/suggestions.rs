@@ -18,7 +18,7 @@ pub async fn get_suggestions(
 ) -> Result<impl IntoResponse, ApiError> {
     let result = state
         .client
-        .get_suggestions(q.query.as_deref(), q.count)
+        .get_suggestions(q.query.as_deref(), Some(q.count.unwrap_or(8)))
         .await?;
     Ok(Json(result))
 }

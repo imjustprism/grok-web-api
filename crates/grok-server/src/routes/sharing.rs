@@ -1,11 +1,18 @@
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
+use serde::Deserialize;
 
 use crate::error::{ApiError, AppJson};
 use crate::state::AppState;
 use grok_client::types::common::{ConversationId, ShareLinkId, SharedArtifactId};
 use grok_client::types::sharing::{ShareArtifactRequest, ShareConversationRequest};
+
+#[derive(Debug, Deserialize)]
+pub struct ListShareLinksQuery {
+    pub page_size: Option<u32>,
+    pub page_token: Option<String>,
+}
 
 pub async fn share_conversation(
     State(state): State<AppState>,
@@ -21,8 +28,12 @@ pub async fn share_conversation(
 
 pub async fn list_share_links(
     State(state): State<AppState>,
+    Query(q): Query<ListShareLinksQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let result = state.client.list_share_links().await?;
+    let result = state
+        .client
+        .list_share_links(q.page_size, q.page_token.as_deref())
+        .await?;
     Ok(Json(result))
 }
 
