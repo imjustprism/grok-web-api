@@ -312,11 +312,26 @@ fn parse_tool_calls(text: &str) -> (String, Vec<ParsedToolCall>) {
         let open = cursor + open_rel;
         content.push_str(&text[cursor..open]);
         let body_start = open + TOOL_CALL_OPEN.len();
-        let Some(close_rel) = text[body_start..].find(TOOL_CALL_CLOSE) else {
-            content.push_str(&text[open..]);
-            return (content, calls);
+        let close_rel = text[body_start..].find(TOOL_CALL_CLOSE);
+        let next_open_rel = text[body_start..].find(TOOL_CALL_OPEN);
+        let body_end = match (close_rel, next_open_rel) {
+            (Some(c), Some(n)) if c < n => c,
+            (Some(c), None) => c,
+            _ => match json_object_end(&text[body_start..]) {
+                Some(n) => n,
+                None => {
+                    content.push_str(&text[open..]);
+                    return (content, calls);
+                }
+            },
         };
-        let body = text[body_start..body_start + close_rel].trim();
+        let advance = body_end
+            + if close_rel == Some(body_end) {
+                TOOL_CALL_CLOSE.len()
+            } else {
+                0
+            };
+        let body = text[body_start..body_start + body_end].trim();
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(body) {
             let name = val
                 .get("name")
@@ -346,10 +361,42 @@ fn parse_tool_calls(text: &str) -> (String, Vec<ParsedToolCall>) {
                 });
             }
         }
-        cursor = body_start + close_rel + TOOL_CALL_CLOSE.len();
+        cursor = body_start + advance;
     }
     content.push_str(&text[cursor..]);
     (content.trim().to_owned(), calls)
+}
+
+fn json_object_end(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let start = bytes.iter().position(|&b| b == b'{')?;
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escape = false;
+    for (i, &b) in bytes.iter().enumerate().skip(start) {
+        if in_string {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_string = true,
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 pub async fn chat_completions(
@@ -847,6 +894,32 @@ mod tests {
         let choice = serde_json::Value::String("required".into());
         let block = build_tool_system_block(&tools, Some(&choice));
         assert!(block.contains("MUST call at least one tool"));
+    }
+
+    #[test]
+    fn parses_without_close_tags_back_to_back() {
+        let s = "<tool_call>{\"name\":\"a\",\"arguments\":{\"x\":1}}\n<tool_call>{\"name\":\"b\",\"arguments\":{}}";
+        let (content, calls) = parse_tool_calls(s);
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].name, "a");
+        assert_eq!(calls[1].name, "b");
+        assert_eq!(content, "");
+    }
+
+    #[test]
+    fn parses_without_close_tag_at_eof() {
+        let s = "thinking\n<tool_call>{\"name\":\"a\",\"arguments\":{\"x\":1}}";
+        let (content, calls) = parse_tool_calls(s);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "a");
+        assert_eq!(content, "thinking");
+    }
+
+    #[test]
+    fn json_object_end_handles_nested_and_strings() {
+        assert_eq!(json_object_end("{\"a\":{\"b\":1}}rest"), Some(13));
+        assert_eq!(json_object_end("{\"s\":\"has } brace\"}tail"), Some(19));
+        assert_eq!(json_object_end("{unterminated"), None);
     }
 
     #[test]
