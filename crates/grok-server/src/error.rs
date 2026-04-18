@@ -1,5 +1,5 @@
 use axum::extract::FromRequest;
-use axum::extract::rejection::JsonRejection;
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
@@ -43,6 +43,7 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = StatusCode::from_u16(self.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         let retry_after = self.retry_after_seconds;
+        let needs_www_auth = status == StatusCode::UNAUTHORIZED;
         let body = serde_json::to_string(&self).unwrap_or_else(|_| {
             r#"{"type":"internal","title":"Internal Server Error","status":500,"detail":"Failed to serialize error"}"#.into()
         });
@@ -53,6 +54,12 @@ impl IntoResponse for ApiError {
             if let Ok(val) = axum::http::HeaderValue::from_str(&secs.to_string()) {
                 response.headers_mut().insert("retry-after", val);
             }
+        }
+        if needs_www_auth {
+            response.headers_mut().insert(
+                "www-authenticate",
+                axum::http::HeaderValue::from_static("Bearer"),
+            );
         }
         response
     }
@@ -92,6 +99,28 @@ impl From<JsonRejection> for ApiError {
         Self::new(
             "invalid_request",
             "Invalid Request Body",
+            rejection.status().as_u16(),
+            rejection.body_text(),
+        )
+    }
+}
+
+impl From<QueryRejection> for ApiError {
+    fn from(rejection: QueryRejection) -> Self {
+        Self::new(
+            "invalid_query",
+            "Invalid Query Parameters",
+            rejection.status().as_u16(),
+            rejection.body_text(),
+        )
+    }
+}
+
+impl From<PathRejection> for ApiError {
+    fn from(rejection: PathRejection) -> Self {
+        Self::new(
+            "invalid_path",
+            "Invalid Path Parameter",
             rejection.status().as_u16(),
             rejection.body_text(),
         )

@@ -1,5 +1,5 @@
 use axum::Router;
-use axum::extract::{Request, State};
+use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
@@ -34,7 +34,14 @@ async fn request_tracking(State(state): State<AppState>, request: Request, next:
 
     let elapsed = start.elapsed();
     let status = response.status().as_u16();
-    tracing::info!("{method} {path} {status} {}ms", elapsed.as_millis());
+    tracing::info!(
+        request_id = %request_id,
+        method = %method,
+        path = %path,
+        status,
+        elapsed_ms = elapsed.as_millis() as u64,
+        "request"
+    );
 
     if let Ok(val) = axum::http::HeaderValue::from_str(&request_id) {
         response.headers_mut().insert("x-request-id", val);
@@ -110,7 +117,10 @@ pub fn router(state: AppState) -> Router {
             "/v1/conversations/{id}/artifacts",
             get(artifacts::get_artifacts_metadata),
         )
-        .route("/v1/files", post(files::upload_file))
+        .route(
+            "/v1/files",
+            post(files::upload_file).layer(DefaultBodyLimit::max(64 * 1024 * 1024)),
+        )
         .route("/v1/files/{id}/metadata", get(files::get_file_metadata))
         .route("/v1/code/run", post(code::run_code))
         .route("/v1/memory/blurb", get(memory::get_memory_blurb))

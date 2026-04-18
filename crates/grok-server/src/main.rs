@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tower_http::compression::CompressionLayer;
+use tower_http::compression::predicate::{NotForContentType, Predicate, SizeAbove};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info, warn};
@@ -17,7 +18,10 @@ use state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let _ = dotenvy::dotenv();
+    match dotenvy::dotenv() {
+        Ok(_) | Err(dotenvy::Error::Io(_)) => {}
+        Err(e) => eprintln!("warning: failed to parse .env: {e}"),
+    }
 
     let config = Config::load().map_err(|e| anyhow::anyhow!("Failed to load config: {e}"))?;
 
@@ -34,8 +38,8 @@ async fn main() -> anyhow::Result<()> {
         error!("GROK_SSO_COOKIE is not set");
         error!("  1. Log in to grok.com in your browser");
         error!("  2. Open DevTools (F12) > Application > Cookies > grok.com");
-        error!("  3. Copy the value of 'sso' and 'sso-rw' cookies");
-        error!("  4. Set GROK_SSO_COOKIE and GROK_SSO_RW_COOKIE environment variables");
+        error!("  3. Copy the value of 'sso' (sso-rw is optional, defaults to same)");
+        error!("  4. Set GROK_SSO_COOKIE environment variable");
         std::process::exit(1);
     }
 
@@ -85,7 +89,14 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => error!("Session check failed: {e}"),
     }
 
-    let check_interval = Duration::from_secs(config.session_check_interval_secs);
+    let check_secs = config.session_check_interval_secs.max(30);
+    if check_secs != config.session_check_interval_secs {
+        warn!(
+            "SESSION_CHECK_INTERVAL_SECS={} too low, clamped to {}",
+            config.session_check_interval_secs, check_secs
+        );
+    }
+    let check_interval = Duration::from_secs(check_secs);
     let addr: SocketAddr = format!("{}:{}", config.host, config.port)
         .parse()
         .map_err(|e| anyhow::anyhow!("Invalid bind address: {e}"))?;
@@ -95,6 +106,8 @@ async fn main() -> anyhow::Result<()> {
     let health_state = state.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(check_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        interval.tick().await;
         loop {
             interval.tick().await;
             match health_state.client.check_session().await {
@@ -112,8 +125,14 @@ async fn main() -> anyhow::Result<()> {
         .as_deref()
         .is_some_and(|k| !k.is_empty());
 
+    let compression_predicate = SizeAbove::new(1024)
+        .and(NotForContentType::const_new("text/event-stream"))
+        .and(NotForContentType::const_new("application/x-ndjson"))
+        .and(NotForContentType::const_new("audio/mpeg"))
+        .and(NotForContentType::const_new("application/octet-stream"));
+
     let app = routes::router(state)
-        .layer(CompressionLayer::new())
+        .layer(CompressionLayer::new().compress_when(compression_predicate))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http());
 

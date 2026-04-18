@@ -40,7 +40,7 @@ pub async fn status(State(state): State<AppState>) -> impl IntoResponse {
     let minutes = (uptime.as_secs() % 3600) / 60;
     let seconds = uptime.as_secs() % 60;
 
-    let session_valid = state.client.check_session().await.ok();
+    let session_valid = state.client.auth().is_valid();
 
     let challenge_loaded =
         state.config.challenge_header_hex.is_some() && state.config.challenge_suffix.is_some();
@@ -59,15 +59,18 @@ pub async fn status(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 const SETUP_SCRIPT: &str = concat!(
-    "Open grok.com in your browser, then paste this into the developer console (F12):\n\n",
-    "(async () => {\n",
-    "  const r = await fetch('/rest/app-chat/conversations?pageSize=1', { credentials: 'include' });\n",
-    "  const id = r.headers.get('x-statsig-id') || '';\n",
-    "  const reqId = r.headers.get('x-xai-request-id') || '';\n",
-    "  console.log('Set these environment variables:\\n' +\n",
-    "    'CHALLENGE_HEADER_HEX=' + id + '\\n' +\n",
-    "    'CHALLENGE_SUFFIX=' + reqId);\n",
-    "})();"
+    "Install Void (https://github.com/imjustprism/Void), open grok.com, then paste into the devtools console (F12).\n",
+    "Top-level await + var declarations — safe to re-run, no IIFE wrapping to mangle on paste:\n\n",
+    "var m=Void.findByProps(\"chatApi\"),p=m.chatApi.configuration.middleware[0].pre,",
+    "r=Math.random,d=Date.now,g=crypto.subtle.digest.bind(crypto.subtle),h;",
+    "Math.random=()=>0;Date.now=()=>1e12;",
+    "crypto.subtle.digest=async(a,b)=>{h=new TextDecoder().decode(b);return g(a,b)};",
+    "var s=await p({url:\"https://grok.com/rest/app-chat/x\",init:{method:\"POST\",headers:{}}});",
+    "Math.random=r;Date.now=d;crypto.subtle.digest=g;",
+    "var t=new Uint8Array([...atob(s.init.headers[\"x-statsig-id\"])].map(c=>c.charCodeAt(0)));",
+    "console.log(`CHALLENGE_HEADER_HEX=${[...t.slice(0,49)].map(b=>b.toString(16).padStart(2,\"0\")).join(\"\")}\\n",
+    "CHALLENGE_SUFFIX=${h.split(\"!\").slice(2).join(\"!\").replace(/^-?\\d+/,\"\")}\\n",
+    "CHALLENGE_TRAILER=${t[69]}`)"
 );
 
 pub async fn setup() -> impl IntoResponse {

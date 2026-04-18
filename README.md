@@ -21,10 +21,10 @@ GROK_SSO_COOKIE=your_sso_value
 GROK_SSO_RW_COOKIE=your_sso_rw_value
 ```
 
-**Get challenge values** -- the anti-bot bypass needs three static values extracted once from Grok's web client. If you have [Void](https://github.com/imjustprism/Void) installed, paste this in grok.com's console:
+**Get challenge values** -- the anti-bot bypass needs three static values extracted once from Grok's web client. If you have [Void](https://github.com/imjustprism/Void) installed, paste this in grok.com's console (uses top-level await + `var` so it's safe to re-run and survives accidental edge-trim on paste):
 
 ```js
-(async()=>{let m=Void.findByProps("chatApi"),p=m.chatApi.configuration.middleware[0].pre,r=Math.random,d=Date.now,g=crypto.subtle.digest.bind(crypto.subtle),h;Math.random=()=>0;Date.now=()=>1e12;crypto.subtle.digest=async(a,b)=>{h=new TextDecoder().decode(b);return g(a,b)};let s=await p({url:"https://grok.com/rest/app-chat/x",init:{method:"POST",headers:{}}});Math.random=r;Date.now=d;crypto.subtle.digest=g;let t=new Uint8Array([...atob(s.init.headers["x-statsig-id"])].map(c=>c.charCodeAt(0)));console.log(`CHALLENGE_HEADER_HEX=${[...t.slice(0,49)].map(b=>b.toString(16).padStart(2,"0")).join("")}\nCHALLENGE_SUFFIX=${h.split("!").slice(2).join("!").replace(/^\d+/,"")}\nCHALLENGE_TRAILER=${t[69]}`)})()
+var m=Void.findByProps("chatApi"),p=m.chatApi.configuration.middleware[0].pre,r=Math.random,d=Date.now,g=crypto.subtle.digest.bind(crypto.subtle),h;Math.random=()=>0;Date.now=()=>1e12;crypto.subtle.digest=async(a,b)=>{h=new TextDecoder().decode(b);return g(a,b)};var s=await p({url:"https://grok.com/rest/app-chat/x",init:{method:"POST",headers:{}}});Math.random=r;Date.now=d;crypto.subtle.digest=g;var t=new Uint8Array([...atob(s.init.headers["x-statsig-id"])].map(c=>c.charCodeAt(0)));console.log(`CHALLENGE_HEADER_HEX=${[...t.slice(0,49)].map(b=>b.toString(16).padStart(2,"0")).join("")}\nCHALLENGE_SUFFIX=${h.split("!").slice(2).join("!").replace(/^-?\d+/,"")}\nCHALLENGE_TRAILER=${t[69]}`)
 ```
 
 Copy the three output lines into `.env`.

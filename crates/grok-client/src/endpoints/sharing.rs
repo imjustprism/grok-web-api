@@ -36,15 +36,15 @@ impl GrokClient {
     ) -> Result<serde_json::Value> {
         #[derive(serde::Serialize)]
         struct Q<'a> {
-            #[serde(rename = "pageSize")]
-            page_size: u32,
+            #[serde(rename = "pageSize", skip_serializing_if = "Option::is_none")]
+            page_size: Option<u32>,
             #[serde(rename = "pageToken", skip_serializing_if = "Option::is_none")]
             page_token: Option<&'a str>,
         }
         self.get_query_json(
             "share_links",
             &Q {
-                page_size: page_size.unwrap_or(20),
+                page_size,
                 page_token,
             },
         )

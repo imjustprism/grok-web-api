@@ -35,7 +35,32 @@ pub struct ChatCompletionRequest {
 #[derive(Debug, Deserialize)]
 pub struct Message {
     pub role: String,
+    #[serde(default, deserialize_with = "deserialize_content")]
     pub content: String,
+}
+
+fn deserialize_content<'de, D>(de: D) -> std::result::Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let value = serde_json::Value::deserialize(de)?;
+    match value {
+        serde_json::Value::Null => Ok(String::new()),
+        serde_json::Value::String(s) => Ok(s),
+        serde_json::Value::Array(parts) => {
+            let mut out = String::new();
+            for part in parts {
+                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                    out.push_str(text);
+                }
+            }
+            Ok(out)
+        }
+        other => Err(D::Error::custom(format!(
+            "unsupported content type: {other}"
+        ))),
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -122,7 +147,11 @@ fn parse_model_string(model: &str) -> (&str, Option<ModelMode>) {
 fn sse_line(json: &impl Serialize) -> bytes::Bytes {
     let mut buf = Vec::with_capacity(256);
     buf.extend_from_slice(b"data: ");
-    serde_json::to_writer(&mut buf, json).unwrap_or_default();
+    if let Err(e) = serde_json::to_writer(&mut buf, json) {
+        tracing::error!("sse_line serialize failed: {e}");
+        buf.truncate(b"data: ".len());
+        buf.extend_from_slice(br#"{"error":{"message":"serialization error","type":"internal"}}"#);
+    }
     buf.extend_from_slice(b"\n\n");
     bytes::Bytes::from(buf)
 }
@@ -167,19 +196,22 @@ pub async fn chat_completions(
         .filter(|m| m.role != "system")
         .collect();
 
-    let prompt = if non_system.len() <= 1 {
-        non_system
-            .first()
-            .map(|m| m.content.clone())
-            .unwrap_or_default()
+    if non_system.is_empty() {
+        return Err(ApiError::bad_request(
+            "messages must contain at least one non-system message".into(),
+        ));
+    }
+
+    let prompt = if non_system.len() == 1 {
+        non_system[0].content.clone()
     } else {
-        let history = non_system[..non_system.len() - 1]
+        let (last, history) = non_system.split_last().expect("non_system not empty");
+        let history_str = history
             .iter()
             .map(|m| format!("[{}]: {}", m.role, m.content))
             .collect::<Vec<_>>()
             .join("\n\n");
-        let last = &non_system[non_system.len() - 1].content;
-        format!("{history}\n\n[user]: {last}")
+        format!("{history_str}\n\n[{}]: {}", last.role, last.content)
     };
 
     let mut grok_req = NewConversationRequest::new(&prompt);

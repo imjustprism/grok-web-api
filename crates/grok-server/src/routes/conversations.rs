@@ -60,6 +60,7 @@ pub async fn update_conversation(
 #[derive(Debug, Deserialize)]
 pub struct DeleteQuery {
     pub soft: Option<bool>,
+    pub delete_media: Option<bool>,
 }
 
 pub async fn delete_conversation(
@@ -71,7 +72,10 @@ pub async fn delete_conversation(
     if query.soft.unwrap_or(false) {
         state.client.soft_delete_conversation(&cid).await?;
     } else {
-        state.client.delete_conversation(&cid, false).await?;
+        state
+            .client
+            .delete_conversation(&cid, query.delete_media.unwrap_or(false))
+            .await?;
     }
     Ok(Json(serde_json::json!({ "status": "deleted" })))
 }

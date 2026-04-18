@@ -84,8 +84,12 @@ impl TokenProvider for HttpTokenProvider {
                 .map_err(GrokError::Request)?;
 
             let body: serde_json::Value = resp.json().await.map_err(GrokError::Request)?;
+            let statsig_id = body["x-statsig-id"].as_str().unwrap_or("").to_owned();
+            if statsig_id.is_empty() {
+                warn!("token provider returned empty x-statsig-id — anti-bot will reject");
+            }
             Ok(TokenPair {
-                statsig_id: body["x-statsig-id"].as_str().unwrap_or("").to_owned(),
+                statsig_id,
                 request_id: body["x-xai-request-id"]
                     .as_str()
                     .map(str::to_owned)
@@ -114,13 +118,20 @@ impl GrokClient {
         let api_prefix = format!("{base}/rest/app-chat");
 
         let mut static_headers = HeaderMap::with_capacity(8);
-        if let Ok(val) = HeaderValue::from_str(auth.cookie_header()) {
-            static_headers.insert(COOKIE, val);
-        }
+        let cookie_val = HeaderValue::from_str(auth.cookie_header()).map_err(|e| {
+            GrokError::Config(format!(
+                "cookie header contains invalid bytes (check for CR/LF/null in env): {e}"
+            ))
+        })?;
+        let origin_val = HeaderValue::from_str(&base)
+            .map_err(|e| GrokError::Config(format!("base_url is not a valid header value: {e}")))?;
+        let referer_val = HeaderValue::from_str(&format!("{base}/"))
+            .map_err(|e| GrokError::Config(format!("base_url is not a valid header value: {e}")))?;
+        static_headers.insert(COOKIE, cookie_val);
         static_headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
         static_headers.insert("accept", HeaderValue::from_static("*/*"));
-        static_headers.insert("origin", HeaderValue::from_static("https://grok.com"));
-        static_headers.insert("referer", HeaderValue::from_static("https://grok.com/"));
+        static_headers.insert("origin", origin_val);
+        static_headers.insert("referer", referer_val);
         static_headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
         static_headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
         static_headers.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
@@ -171,20 +182,28 @@ impl GrokClient {
             None => TokenPair::fallback(),
         };
 
-        if let Ok(val) = HeaderValue::from_str(&pair.request_id) {
-            headers.insert("x-xai-request-id", val);
+        match HeaderValue::from_str(&pair.request_id) {
+            Ok(val) => {
+                headers.insert("x-xai-request-id", val);
+            }
+            Err(e) => warn!("invalid request_id header value, skipping: {e}"),
         }
-        if let Ok(val) = HeaderValue::from_str(&pair.statsig_id) {
-            headers.insert("x-statsig-id", val);
+        match HeaderValue::from_str(&pair.statsig_id) {
+            Ok(val) => {
+                headers.insert("x-statsig-id", val);
+            }
+            Err(e) => warn!("invalid statsig_id header value, skipping: {e}"),
         }
 
         headers
     }
 
     async fn request(&self, method: wreq::Method, path: &str) -> Result<wreq::RequestBuilder> {
-        let full_path = format!("/rest/app-chat/{}", path.trim_start_matches('/'));
-        let url = format!("{}{full_path}", self.base_url);
-        let headers = self.build_headers(&full_path, method.as_str()).await;
+        let trimmed = path.trim_start_matches('/');
+        let path_only = trimmed.split_once('?').map_or(trimmed, |(p, _)| p);
+        let challenge_path = format!("/rest/app-chat/{path_only}");
+        let url = format!("{}/rest/app-chat/{trimmed}", self.base_url);
+        let headers = self.build_headers(&challenge_path, method.as_str()).await;
         Ok(self.http.request(method, &url).headers(headers))
     }
 

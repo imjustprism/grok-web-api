@@ -143,7 +143,7 @@ pub async fn list_models() -> impl IntoResponse {
 
 pub async fn get_model(Path(id): Path<String>) -> Result<impl IntoResponse, ApiError> {
     MODELS.iter().find(|m| m.id == id).map(Json).ok_or_else(|| {
-        ApiError::bad_request(format!(
+        ApiError::not_found(format!(
             "Model '{id}' not found. Use GET /v1/models for available models."
         ))
     })

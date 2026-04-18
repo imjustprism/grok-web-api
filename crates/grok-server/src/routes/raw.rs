@@ -11,12 +11,22 @@ pub async fn raw_proxy(
     State(state): State<AppState>,
     request: Request,
 ) -> Result<impl IntoResponse, ApiError> {
-    let path = request
-        .uri()
-        .path()
-        .strip_prefix("/raw/")
-        .unwrap_or(request.uri().path())
-        .to_owned();
+    let uri = request.uri().clone();
+    let raw_path = uri.path().strip_prefix("/raw/").unwrap_or(uri.path());
+
+    if raw_path
+        .split('/')
+        .any(|seg| seg == ".." || seg == "." || seg.is_empty())
+    {
+        return Err(ApiError::bad_request(
+            "path must not contain empty, '.' or '..' segments".into(),
+        ));
+    }
+
+    let path = match uri.query() {
+        Some(q) if !q.is_empty() => format!("{raw_path}?{q}"),
+        _ => raw_path.to_owned(),
+    };
 
     let method = request.method().clone();
 

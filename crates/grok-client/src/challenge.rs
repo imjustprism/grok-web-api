@@ -40,9 +40,9 @@ impl ChallengeConfig {
     pub fn generate_token(&self, path: &str, method: &str) -> String {
         let now_secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let counter = now_secs - EPOCH;
+            .map(|d| d.as_secs())
+            .unwrap_or(EPOCH);
+        let counter = now_secs.saturating_sub(EPOCH);
         let counter_str = counter.to_string();
 
         let hash_input = format!("{method}!{path}!{counter_str}{}", self.static_suffix);
@@ -95,4 +95,53 @@ fn hex_decode(hex: &str) -> std::result::Result<Vec<u8>, String> {
         .step_by(2)
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).map_err(|e| e.to_string()))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_hex() -> String {
+        "00".repeat(HEADER_LEN)
+    }
+
+    #[test]
+    fn rejects_wrong_length_header() {
+        assert!(ChallengeConfig::new("00", "suffix", 3).is_err());
+    }
+
+    #[test]
+    fn rejects_odd_hex() {
+        assert!(ChallengeConfig::new("0", "suffix", 3).is_err());
+    }
+
+    #[test]
+    fn rejects_invalid_hex_chars() {
+        assert!(ChallengeConfig::new(&"zz".repeat(HEADER_LEN), "suffix", 3).is_err());
+    }
+
+    #[test]
+    fn token_is_valid_base64_and_correct_length() {
+        let cfg = ChallengeConfig::new(&sample_hex(), "suffix", 3).unwrap();
+        let token = cfg.generate_token("/x", "POST");
+        let decoded = BASE64.decode(token.as_bytes()).expect("valid base64");
+        assert_eq!(decoded.len(), TOKEN_LEN);
+    }
+
+    #[test]
+    fn tokens_differ_across_calls_due_to_xor() {
+        let cfg = ChallengeConfig::new(&sample_hex(), "suffix", 3).unwrap();
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..32 {
+            seen.insert(cfg.generate_token("/x", "POST"));
+        }
+        assert!(seen.len() > 1, "XOR randomization should vary token");
+    }
+
+    #[test]
+    fn request_id_is_uuid() {
+        let cfg = ChallengeConfig::new(&sample_hex(), "suffix", 3).unwrap();
+        let (_, req_id) = cfg.generate_headers("/x", "POST");
+        assert!(uuid::Uuid::parse_str(&req_id).is_ok());
+    }
 }
