@@ -248,8 +248,10 @@ fn build_tool_system_block(
     alias: &std::collections::HashMap<String, String>,
 ) -> String {
     let schema = aliased_specs(tools, alias);
-    let reverse: std::collections::HashMap<&str, &str> =
-        alias.iter().map(|(a, o)| (o.as_str(), a.as_str())).collect();
+    let reverse: std::collections::HashMap<&str, &str> = alias
+        .iter()
+        .map(|(a, o)| (o.as_str(), a.as_str()))
+        .collect();
     let directive = match tool_choice {
         Some(serde_json::Value::String(s)) if s == "required" => {
             "You MUST call at least one function. Do not answer in natural language."
@@ -286,16 +288,15 @@ fn build_tool_system_block(
     )
 }
 
-fn render_history<'a, I>(
-    messages: I,
-    alias: &std::collections::HashMap<String, String>,
-) -> String
+fn render_history<'a, I>(messages: I, alias: &std::collections::HashMap<String, String>) -> String
 where
     I: IntoIterator<Item = &'a Message>,
 {
     use std::fmt::Write;
-    let real_to_alias: std::collections::HashMap<&str, &str> =
-        alias.iter().map(|(a, o)| (o.as_str(), a.as_str())).collect();
+    let real_to_alias: std::collections::HashMap<&str, &str> = alias
+        .iter()
+        .map(|(a, o)| (o.as_str(), a.as_str()))
+        .collect();
     let mut out = String::new();
     for m in messages {
         if !out.is_empty() {
@@ -347,7 +348,10 @@ struct ParsedToolCall {
     arguments: String,
 }
 
-fn parse_bare_json_calls(text: &str, known: &std::collections::HashSet<String>) -> Vec<ParsedToolCall> {
+fn parse_bare_json_calls(
+    text: &str,
+    known: &std::collections::HashSet<String>,
+) -> Vec<ParsedToolCall> {
     let mut calls = Vec::new();
     let bytes = text.as_bytes();
     let mut i = 0;
