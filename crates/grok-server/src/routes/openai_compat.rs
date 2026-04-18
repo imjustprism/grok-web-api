@@ -10,7 +10,9 @@ use crate::routes::models::MODE_IDS;
 use crate::state::AppState;
 use grok_client::streaming::StreamChunk;
 use grok_client::types::chat::NewConversationRequest;
-use grok_client::types::models::{ModelMode, ModelName};
+
+const TOOL_CALL_OPEN: &str = "<tool_call>";
+const TOOL_CALL_CLOSE: &str = "</tool_call>";
 
 #[derive(Debug, Deserialize)]
 pub struct ChatCompletionRequest {
@@ -27,7 +29,9 @@ pub struct ChatCompletionRequest {
     #[serde(default)]
     pub top_p: Option<f64>,
     #[serde(default)]
-    pub tools: Option<serde_json::Value>,
+    pub tools: Option<Vec<ToolDef>>,
+    #[serde(default)]
+    pub tool_choice: Option<serde_json::Value>,
     #[serde(default)]
     pub response_format: Option<serde_json::Value>,
 }
@@ -37,6 +41,37 @@ pub struct Message {
     pub role: String,
     #[serde(default, deserialize_with = "deserialize_content")]
     pub content: String,
+    #[serde(default)]
+    pub tool_call_id: Option<String>,
+    #[serde(default)]
+    pub tool_calls: Option<Vec<InboundToolCall>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InboundToolCall {
+    pub id: String,
+    pub function: InboundFunctionCall,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InboundFunctionCall {
+    pub name: String,
+    #[serde(default)]
+    pub arguments: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ToolDef {
+    pub function: FunctionDef,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct FunctionDef {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<serde_json::Value>,
 }
 
 fn deserialize_content<'de, D>(de: D) -> std::result::Result<String, D::Error>
@@ -83,7 +118,24 @@ pub struct Choice {
 #[derive(Debug, Serialize)]
 pub struct ResponseMessage {
     pub role: &'static str,
-    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<OutboundToolCall>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OutboundToolCall {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+    pub function: OutboundFunctionCall,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OutboundFunctionCall {
+    pub name: String,
+    pub arguments: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -109,12 +161,29 @@ struct ChunkChoice<'a> {
     finish_reason: Option<&'static str>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 struct Delta<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     role: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<ToolCallDelta<'a>>>,
+}
+
+#[derive(Serialize)]
+struct ToolCallDelta<'a> {
+    index: u32,
+    id: &'a str,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    function: FunctionDelta<'a>,
+}
+
+#[derive(Serialize)]
+struct FunctionDelta<'a> {
+    name: &'a str,
+    arguments: &'a str,
 }
 
 #[derive(Serialize)]
@@ -126,22 +195,6 @@ struct SseError<'a> {
 struct SseErrorInner<'a> {
     message: &'a str,
     r#type: &'static str,
-}
-
-fn parse_model_string(model: &str) -> (&str, Option<ModelMode>) {
-    for suffix in ["-auto", "-fast", "-expert", "-heavy"] {
-        if let Some(base) = model.strip_suffix(suffix) {
-            let mode = match suffix {
-                "-auto" => ModelMode::Auto,
-                "-fast" => ModelMode::Fast,
-                "-expert" => ModelMode::Expert,
-                "-heavy" => ModelMode::Heavy,
-                _ => unreachable!(),
-            };
-            return (base, Some(mode));
-        }
-    }
-    (model, None)
 }
 
 fn sse_line(json: &impl Serialize) -> bytes::Bytes {
@@ -163,6 +216,142 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
+fn build_tool_system_block(tools: &[ToolDef], tool_choice: Option<&serde_json::Value>) -> String {
+    let specs = tools.iter().map(|t| &t.function).collect::<Vec<_>>();
+    let schema = serde_json::to_string_pretty(&specs).unwrap_or_else(|_| "[]".into());
+    let directive = match tool_choice {
+        Some(serde_json::Value::String(s)) if s == "required" => {
+            "You MUST call at least one tool. Do not answer without a tool call."
+        }
+        Some(serde_json::Value::Object(obj))
+            if obj.get("type").and_then(|v| v.as_str()) == Some("function") =>
+        {
+            if let Some(name) = obj
+                .get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(|n| n.as_str())
+            {
+                return format!(
+                    "You MUST call the tool named \"{name}\" exactly once. Output EXACTLY:\n\
+                     {TOOL_CALL_OPEN}{{\"name\":\"{name}\",\"arguments\":{{...}}}}{TOOL_CALL_CLOSE}\n\
+                     Arguments must be valid JSON matching the tool schema.\n\n\
+                     Tools:\n{schema}"
+                );
+            }
+            "Call a tool when appropriate."
+        }
+        _ => "Call a tool only when it is needed to answer the user's request.",
+    };
+    format!(
+        "You have access to the following tools. To call a tool, output EXACTLY one XML block per call on its own line:\n\
+         {TOOL_CALL_OPEN}{{\"name\":\"<tool_name>\",\"arguments\":{{...}}}}{TOOL_CALL_CLOSE}\n\
+         Arguments must be valid JSON matching the tool schema. Do not wrap in code fences. \
+         After emitting tool calls, stop generating — you will receive results in the next turn. \
+         {directive}\n\n\
+         Tools:\n{schema}"
+    )
+}
+
+fn render_history<'a, I>(messages: I) -> String
+where
+    I: IntoIterator<Item = &'a Message>,
+{
+    use std::fmt::Write;
+    let mut out = String::new();
+    for m in messages {
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        match m.role.as_str() {
+            "tool" => {
+                let id = m.tool_call_id.as_deref().unwrap_or("unknown");
+                let _ = write!(
+                    &mut out,
+                    "[tool_result id={id}]\n{}\n[/tool_result]",
+                    m.content
+                );
+            }
+            "assistant" => {
+                out.push_str("[assistant]: ");
+                out.push_str(&m.content);
+                if let Some(calls) = &m.tool_calls {
+                    for c in calls {
+                        let args = if c.function.arguments.is_empty() {
+                            "{}"
+                        } else {
+                            c.function.arguments.as_str()
+                        };
+                        let _ = write!(
+                            &mut out,
+                            "\n{TOOL_CALL_OPEN}{{\"id\":\"{}\",\"name\":\"{}\",\"arguments\":{args}}}{TOOL_CALL_CLOSE}",
+                            c.id, c.function.name,
+                        );
+                    }
+                }
+            }
+            role => {
+                let _ = write!(&mut out, "[{role}]: {}", m.content);
+            }
+        }
+    }
+    out
+}
+
+#[derive(Debug, Clone)]
+struct ParsedToolCall {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+fn parse_tool_calls(text: &str) -> (String, Vec<ParsedToolCall>) {
+    let mut content = String::with_capacity(text.len());
+    let mut calls = Vec::new();
+    let mut cursor = 0;
+    while let Some(open_rel) = text[cursor..].find(TOOL_CALL_OPEN) {
+        let open = cursor + open_rel;
+        content.push_str(&text[cursor..open]);
+        let body_start = open + TOOL_CALL_OPEN.len();
+        let Some(close_rel) = text[body_start..].find(TOOL_CALL_CLOSE) else {
+            content.push_str(&text[open..]);
+            return (content, calls);
+        };
+        let body = text[body_start..body_start + close_rel].trim();
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(body) {
+            let name = val
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_owned();
+            let id = val
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("call_{}", uuid::Uuid::new_v4().simple()));
+            let arguments = val
+                .get("arguments")
+                .map(|a| {
+                    if a.is_string() {
+                        a.as_str().unwrap_or("").to_owned()
+                    } else {
+                        serde_json::to_string(a).unwrap_or_else(|_| "{}".into())
+                    }
+                })
+                .unwrap_or_else(|| "{}".into());
+            if !name.is_empty() {
+                calls.push(ParsedToolCall {
+                    id,
+                    name,
+                    arguments,
+                });
+            }
+        }
+        cursor = body_start + close_rel + TOOL_CALL_CLOSE.len();
+    }
+    content.push_str(&text[cursor..]);
+    (content.trim().to_owned(), calls)
+}
+
 pub async fn chat_completions(
     State(state): State<AppState>,
     AppJson(request): AppJson<ChatCompletionRequest>,
@@ -176,21 +365,29 @@ pub async fn chat_completions(
             "OpenAI params temperature/top_p/max_tokens ignored — Grok web API does not support these"
         );
     }
-    if request.tools.is_some() {
-        tracing::warn!("tools/functions not supported — tool calls will be ignored");
-    }
     if request.response_format.is_some() {
         tracing::debug!("response_format ignored — Grok web API does not support JSON mode");
     }
+    let tool_choice_none = request
+        .tool_choice
+        .as_ref()
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| s == "none");
 
-    let system_prompt = request
+    let mut system_parts: Vec<String> = request
         .messages
         .iter()
         .filter(|m| m.role == "system")
-        .map(|m| m.content.as_str())
-        .collect::<Vec<_>>();
+        .map(|m| m.content.clone())
+        .collect();
 
-    let non_system: Vec<_> = request
+    let tools_enabled = !tool_choice_none && request.tools.as_ref().is_some_and(|t| !t.is_empty());
+
+    if tools_enabled && let Some(tools) = request.tools.as_ref() {
+        system_parts.push(build_tool_system_block(tools, request.tool_choice.as_ref()));
+    }
+
+    let non_system: Vec<&Message> = request
         .messages
         .iter()
         .filter(|m| m.role != "system")
@@ -202,49 +399,37 @@ pub async fn chat_completions(
         ));
     }
 
-    let prompt = if non_system.len() == 1 {
+    let prompt = if non_system.len() == 1
+        && non_system[0].tool_calls.is_none()
+        && non_system[0].role != "tool"
+    {
         non_system[0].content.clone()
     } else {
-        let (last, history) = non_system.split_last().expect("non_system not empty");
-        let history_str = history
-            .iter()
-            .map(|m| format!("[{}]: {}", m.role, m.content))
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        format!("{history_str}\n\n[{}]: {}", last.role, last.content)
+        render_history(non_system.iter().copied())
     };
 
     let mut grok_req = NewConversationRequest::new(&prompt);
     grok_req.temporary = Some(true);
-    if !system_prompt.is_empty() {
-        grok_req.options.custom_instructions = Some(system_prompt.join("\n"));
+    if !system_parts.is_empty() {
+        grok_req.options.custom_instructions = Some(system_parts.join("\n\n"));
     }
 
     let model_str = request.model.unwrap_or_else(|| "auto".into());
-
-    if MODE_IDS.contains(&model_str.as_str()) {
-        grok_req.options.mode_id = Some(model_str.clone().into());
+    let resolved = if MODE_IDS.contains(&model_str.as_str()) {
+        model_str.clone()
     } else {
-        let (base_model, mode) = parse_model_string(&model_str);
-
-        grok_req.options.model_name = Some(match base_model {
-            "grok-2" => ModelName::Grok2,
-            "grok-3" => ModelName::Grok3,
-            "grok-3-mini" => ModelName::Grok3Mini,
-            "grok-4" => ModelName::Grok4,
-            "grok-4-mini" => ModelName::Grok4Mini,
-            other => ModelName::Other(other.to_owned()),
-        });
-
-        if let Some(m) = mode {
-            grok_req.options.model_mode = Some(m);
-        }
-    }
+        tracing::debug!(
+            requested = %model_str,
+            "unknown model id, falling back to 'auto' (supported: auto, fast, expert, heavy, grok-4-3)"
+        );
+        "auto".to_owned()
+    };
+    grok_req.options.mode_id = Some(resolved.into());
 
     if request.stream {
-        stream_response(state, grok_req, model_str.clone()).await
+        stream_response(state, grok_req, model_str, tools_enabled).await
     } else {
-        non_stream_response(state, grok_req, model_str).await
+        non_stream_response(state, grok_req, model_str, tools_enabled).await
     }
 }
 
@@ -252,119 +437,156 @@ async fn stream_response(
     state: AppState,
     grok_req: NewConversationRequest,
     model: String,
+    tools_enabled: bool,
 ) -> Result<Response, ApiError> {
-    let grok_stream = state.client.create_conversation(&grok_req).await?;
+    let mut grok_stream = state.client.create_conversation(&grok_req).await?;
     let completion_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
     let created = now_secs();
 
-    let mut sent_role = false;
+    let id_for_stream = completion_id.clone();
+    let model_for_stream = model.clone();
 
-    let sse_stream = grok_stream.filter_map(move |chunk_result| {
-        let id = completion_id.clone();
-        let model = model.clone();
-        let needs_role = !sent_role;
-        if needs_role {
-            sent_role = true;
-        }
+    let sse_stream = async_stream::try_stream! {
+        let role_chunk = ChunkWrapper {
+            id: &id_for_stream,
+            object: "chat.completion.chunk",
+            created,
+            model: &model_for_stream,
+            choices: [ChunkChoice {
+                index: 0,
+                delta: Delta { role: Some("assistant"), ..Delta::default() },
+                finish_reason: None,
+            }],
+        };
+        yield sse_line(&role_chunk);
 
-        async move {
+        let mut buffer = String::new();
+        let mut emitted_tool = false;
+
+        while let Some(chunk_result) = grok_stream.next().await {
             match chunk_result {
                 Ok(StreamChunk::Token { text, is_soft_stop }) => {
-                    if is_soft_stop && text.is_empty() {
-                        return None;
-                    }
-                    if needs_role {
-                        let role_chunk = ChunkWrapper {
-                            id: &id,
+                    if is_soft_stop && text.is_empty() { continue; }
+                    buffer.push_str(&text);
+
+                    if tools_enabled {
+                        let flush_to = safe_flush_boundary(&buffer);
+                        if flush_to > 0 {
+                            let piece: String = buffer.drain(..flush_to).collect();
+                            let chunk = ChunkWrapper {
+                                id: &id_for_stream,
+                                object: "chat.completion.chunk",
+                                created,
+                                model: &model_for_stream,
+                                choices: [ChunkChoice {
+                                    index: 0,
+                                    delta: Delta { content: Some(&piece), ..Delta::default() },
+                                    finish_reason: None,
+                                }],
+                            };
+                            yield sse_line(&chunk);
+                        }
+                    } else {
+                        let chunk = ChunkWrapper {
+                            id: &id_for_stream,
                             object: "chat.completion.chunk",
                             created,
-                            model: &model,
+                            model: &model_for_stream,
                             choices: [ChunkChoice {
                                 index: 0,
-                                delta: Delta {
-                                    role: Some("assistant"),
-                                    content: None,
-                                },
+                                delta: Delta { content: Some(&text), ..Delta::default() },
                                 finish_reason: None,
                             }],
                         };
-                        let mut buf = sse_line(&role_chunk).to_vec();
-                        let content_chunk = ChunkWrapper {
-                            id: &id,
-                            object: "chat.completion.chunk",
-                            created,
-                            model: &model,
-                            choices: [ChunkChoice {
-                                index: 0,
-                                delta: Delta {
-                                    role: None,
-                                    content: Some(&text),
-                                },
-                                finish_reason: None,
-                            }],
-                        };
-                        buf.extend_from_slice(&sse_line(&content_chunk));
-                        return Some(Ok::<_, std::io::Error>(bytes::Bytes::from(buf)));
+                        buffer.clear();
+                        yield sse_line(&chunk);
                     }
-                    let chunk = ChunkWrapper {
-                        id: &id,
-                        object: "chat.completion.chunk",
-                        created,
-                        model: &model,
-                        choices: [ChunkChoice {
-                            index: 0,
-                            delta: Delta {
-                                role: None,
-                                content: Some(&text),
-                            },
-                            finish_reason: None,
-                        }],
-                    };
-                    Some(Ok::<_, std::io::Error>(sse_line(&chunk)))
                 }
-                Ok(StreamChunk::Done) => {
-                    let chunk = ChunkWrapper {
-                        id: &id,
-                        object: "chat.completion.chunk",
-                        created,
-                        model: &model,
-                        choices: [ChunkChoice {
-                            index: 0,
-                            delta: Delta {
-                                role: None,
-                                content: None,
-                            },
-                            finish_reason: Some("stop"),
-                        }],
-                    };
-                    let mut buf = sse_line(&chunk).to_vec();
-                    buf.extend_from_slice(b"data: [DONE]\n\n");
-                    Some(Ok(bytes::Bytes::from(buf)))
-                }
-                Ok(StreamChunk::ThinkingToken { .. }) => None,
+                Ok(StreamChunk::Done) => break,
+                Ok(StreamChunk::ThinkingToken { .. }) => {}
                 Ok(StreamChunk::Error { message }) => {
                     let err = SseError {
-                        error: SseErrorInner {
-                            message: &message,
-                            r#type: "upstream_error",
-                        },
+                        error: SseErrorInner { message: &message, r#type: "upstream_error" },
                     };
-                    Some(Ok(sse_line(&err)))
+                    yield sse_line(&err);
                 }
-                Ok(_) => None,
+                Ok(_) => {}
                 Err(e) => {
                     let msg = e.to_string();
                     let err = SseError {
-                        error: SseErrorInner {
-                            message: &msg,
-                            r#type: "stream_error",
-                        },
+                        error: SseErrorInner { message: &msg, r#type: "stream_error" },
                     };
-                    Some(Ok(sse_line(&err)))
+                    yield sse_line(&err);
                 }
             }
         }
-    });
+
+        let (remaining_content, calls) = if tools_enabled {
+            parse_tool_calls(&buffer)
+        } else {
+            (std::mem::take(&mut buffer), Vec::new())
+        };
+
+        if !remaining_content.is_empty() {
+            let chunk = ChunkWrapper {
+                id: &id_for_stream,
+                object: "chat.completion.chunk",
+                created,
+                model: &model_for_stream,
+                choices: [ChunkChoice {
+                    index: 0,
+                    delta: Delta { content: Some(&remaining_content), ..Delta::default() },
+                    finish_reason: None,
+                }],
+            };
+            yield sse_line(&chunk);
+        }
+
+        if !calls.is_empty() {
+            emitted_tool = true;
+            let deltas: Vec<ToolCallDelta<'_>> = calls
+                .iter()
+                .enumerate()
+                .map(|(i, c)| ToolCallDelta {
+                    index: i as u32,
+                    id: &c.id,
+                    kind: "function",
+                    function: FunctionDelta { name: &c.name, arguments: &c.arguments },
+                })
+                .collect();
+            let chunk = ChunkWrapper {
+                id: &id_for_stream,
+                object: "chat.completion.chunk",
+                created,
+                model: &model_for_stream,
+                choices: [ChunkChoice {
+                    index: 0,
+                    delta: Delta { tool_calls: Some(deltas), ..Delta::default() },
+                    finish_reason: None,
+                }],
+            };
+            yield sse_line(&chunk);
+        }
+
+        let finish = if emitted_tool { "tool_calls" } else { "stop" };
+        let final_chunk = ChunkWrapper {
+            id: &id_for_stream,
+            object: "chat.completion.chunk",
+            created,
+            model: &model_for_stream,
+            choices: [ChunkChoice {
+                index: 0,
+                delta: Delta::default(),
+                finish_reason: Some(finish),
+            }],
+        };
+        yield sse_line(&final_chunk);
+        yield bytes::Bytes::from_static(b"data: [DONE]\n\n");
+    };
+
+    let boxed: std::pin::Pin<
+        Box<dyn futures::Stream<Item = std::result::Result<bytes::Bytes, std::io::Error>> + Send>,
+    > = Box::pin(sse_stream);
 
     Ok((
         [
@@ -372,18 +594,60 @@ async fn stream_response(
             (header::CACHE_CONTROL, "no-cache"),
             (header::CONNECTION, "keep-alive"),
         ],
-        axum::body::Body::from_stream(sse_stream),
+        axum::body::Body::from_stream(boxed),
     )
         .into_response())
+}
+
+fn safe_flush_boundary(buf: &str) -> usize {
+    if let Some(open) = buf.find(TOOL_CALL_OPEN) {
+        return open;
+    }
+    let bytes = buf.as_bytes();
+    let open_bytes = TOOL_CALL_OPEN.as_bytes();
+    let max_partial = open_bytes.len() - 1;
+    let start = bytes.len().saturating_sub(max_partial);
+    for i in start..bytes.len() {
+        if !buf.is_char_boundary(i) {
+            continue;
+        }
+        let tail = &bytes[i..];
+        if open_bytes.starts_with(tail) {
+            return i;
+        }
+    }
+    bytes.len()
 }
 
 async fn non_stream_response(
     state: AppState,
     grok_req: NewConversationRequest,
     model: String,
+    tools_enabled: bool,
 ) -> Result<Response, ApiError> {
     let mut grok_stream = state.client.create_conversation(&grok_req).await?;
     let full_text = grok_stream.collect_text().await?;
+
+    let (content, calls) = if tools_enabled {
+        parse_tool_calls(&full_text)
+    } else {
+        (full_text, Vec::new())
+    };
+
+    let has_calls = !calls.is_empty();
+    let tool_calls = has_calls.then(|| {
+        calls
+            .into_iter()
+            .map(|c| OutboundToolCall {
+                id: c.id,
+                kind: "function",
+                function: OutboundFunctionCall {
+                    name: c.name,
+                    arguments: c.arguments,
+                },
+            })
+            .collect()
+    });
 
     Ok(Json(ChatCompletionResponse {
         id: format!("chatcmpl-{}", uuid::Uuid::new_v4()),
@@ -394,9 +658,14 @@ async fn non_stream_response(
             index: 0,
             message: ResponseMessage {
                 role: "assistant",
-                content: full_text,
+                content: if content.is_empty() {
+                    None
+                } else {
+                    Some(content)
+                },
+                tool_calls,
             },
-            finish_reason: "stop",
+            finish_reason: if has_calls { "tool_calls" } else { "stop" },
         }],
         usage: Usage {
             prompt_tokens: 0,
@@ -405,4 +674,186 @@ async fn non_stream_response(
         },
     })
     .into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_single_call() {
+        let s = "ok, calling\n<tool_call>{\"name\":\"foo\",\"arguments\":{\"x\":1}}</tool_call>";
+        let (content, calls) = parse_tool_calls(s);
+        assert_eq!(content, "ok, calling");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "foo");
+        assert_eq!(calls[0].arguments, "{\"x\":1}");
+    }
+
+    #[test]
+    fn parses_multiple_calls() {
+        let s = "<tool_call>{\"name\":\"a\",\"arguments\":{}}</tool_call><tool_call>{\"name\":\"b\",\"arguments\":{}}</tool_call>";
+        let (_, calls) = parse_tool_calls(s);
+        assert_eq!(calls.len(), 2);
+    }
+
+    #[test]
+    fn flush_boundary_holds_partial_open() {
+        let b = "hello <tool";
+        let n = safe_flush_boundary(b);
+        assert_eq!(&b[..n], "hello ");
+    }
+
+    #[test]
+    fn flush_boundary_holds_full_open() {
+        let b = "hello <tool_call>{partial";
+        let n = safe_flush_boundary(b);
+        assert_eq!(&b[..n], "hello ");
+    }
+
+    #[test]
+    fn flush_boundary_no_marker() {
+        let b = "just text no tags";
+        assert_eq!(safe_flush_boundary(b), b.len());
+    }
+
+    #[test]
+    fn unclosed_tag_kept_as_content() {
+        let s = "hello <tool_call>{\"name\":\"a\"";
+        let (content, calls) = parse_tool_calls(s);
+        assert_eq!(content, s.trim());
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn invalid_json_body_skipped() {
+        let s = "<tool_call>not json at all</tool_call>keep";
+        let (content, calls) = parse_tool_calls(s);
+        assert_eq!(content, "keep");
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn missing_name_skipped() {
+        let s = "<tool_call>{\"arguments\":{}}</tool_call>after";
+        let (content, calls) = parse_tool_calls(s);
+        assert_eq!(content, "after");
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn mixed_content_and_calls() {
+        let s = "thinking...\n<tool_call>{\"name\":\"x\",\"arguments\":{\"a\":1}}</tool_call>\ntrailing";
+        let (content, calls) = parse_tool_calls(s);
+        assert_eq!(content, "thinking...\n\ntrailing");
+        assert_eq!(calls.len(), 1);
+    }
+
+    #[test]
+    fn string_arguments_preserved() {
+        let s = "<tool_call>{\"name\":\"x\",\"arguments\":\"{\\\"a\\\":1}\"}</tool_call>";
+        let (_, calls) = parse_tool_calls(s);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].arguments, "{\"a\":1}");
+    }
+
+    #[test]
+    fn id_passed_through_when_present() {
+        let s = "<tool_call>{\"id\":\"call_abc\",\"name\":\"x\",\"arguments\":{}}</tool_call>";
+        let (_, calls) = parse_tool_calls(s);
+        assert_eq!(calls[0].id, "call_abc");
+    }
+
+    #[test]
+    fn id_auto_generated_when_missing() {
+        let s = "<tool_call>{\"name\":\"x\",\"arguments\":{}}</tool_call>";
+        let (_, calls) = parse_tool_calls(s);
+        assert!(calls[0].id.starts_with("call_"));
+    }
+
+    #[test]
+    fn render_tool_result_message() {
+        let m = Message {
+            role: "tool".into(),
+            content: "result data".into(),
+            tool_call_id: Some("call_123".into()),
+            tool_calls: None,
+        };
+        let out = render_history([&m]);
+        assert!(out.contains("[tool_result id=call_123]"));
+        assert!(out.contains("result data"));
+    }
+
+    #[test]
+    fn render_assistant_tool_calls() {
+        let m = Message {
+            role: "assistant".into(),
+            content: "calling".into(),
+            tool_call_id: None,
+            tool_calls: Some(vec![InboundToolCall {
+                id: "c1".into(),
+                function: InboundFunctionCall {
+                    name: "foo".into(),
+                    arguments: "{\"x\":1}".into(),
+                },
+            }]),
+        };
+        let out = render_history([&m]);
+        assert!(out.contains("[assistant]: calling"));
+        assert!(out.contains(r#"{"id":"c1","name":"foo","arguments":{"x":1}}"#));
+    }
+
+    #[test]
+    fn render_history_separates_with_blank_line() {
+        let a = Message {
+            role: "user".into(),
+            content: "hi".into(),
+            tool_call_id: None,
+            tool_calls: None,
+        };
+        let b = Message {
+            role: "assistant".into(),
+            content: "hello".into(),
+            tool_call_id: None,
+            tool_calls: None,
+        };
+        let out = render_history([&a, &b]);
+        assert_eq!(out, "[user]: hi\n\n[assistant]: hello");
+    }
+
+    #[test]
+    fn tool_block_forces_specific_function() {
+        let tools = vec![ToolDef {
+            function: FunctionDef {
+                name: "my_fn".into(),
+                description: None,
+                parameters: None,
+            },
+        }];
+        let choice = serde_json::json!({"type": "function", "function": {"name": "my_fn"}});
+        let block = build_tool_system_block(&tools, Some(&choice));
+        assert!(block.contains("MUST call the tool named \"my_fn\""));
+    }
+
+    #[test]
+    fn tool_block_required_adds_mandate() {
+        let tools = vec![ToolDef {
+            function: FunctionDef {
+                name: "x".into(),
+                description: None,
+                parameters: None,
+            },
+        }];
+        let choice = serde_json::Value::String("required".into());
+        let block = build_tool_system_block(&tools, Some(&choice));
+        assert!(block.contains("MUST call at least one tool"));
+    }
+
+    #[test]
+    fn flush_boundary_utf8_safe() {
+        let b = "héllo <to";
+        let n = safe_flush_boundary(b);
+        assert!(b.is_char_boundary(n));
+        assert_eq!(&b[..n], "héllo ");
+    }
 }

@@ -5,17 +5,7 @@ use serde::Serialize;
 
 use crate::error::ApiError;
 
-pub const MODE_IDS: &[&str] = &[
-    "auto",
-    "fast",
-    "expert",
-    "heavy",
-    "grok-420",
-    "grok-4-mini-thinking",
-    "grok-4-1",
-    "grok-4-1-thinking",
-    "grok-4-1-nightly",
-];
+pub const MODE_IDS: &[&str] = &["auto", "fast", "expert", "heavy", "grok-4-3"];
 
 #[derive(Serialize)]
 struct ModelObject {
@@ -46,91 +36,28 @@ const MODELS: &[ModelObject] = &[
         object: "model",
         created: 1710000000,
         owned_by: "xai",
-        description: Some("Quick responses — Grok 4.20"),
+        description: Some("Quick responses"),
     },
     ModelObject {
         id: "expert",
         object: "model",
         created: 1710000000,
         owned_by: "xai",
-        description: Some("Thinks hard — Grok 4.20"),
+        description: Some("Thinks hard"),
     },
     ModelObject {
         id: "heavy",
         object: "model",
         created: 1720000000,
         owned_by: "xai",
-        description: Some("Multi-agent orchestration — Grok 4.20"),
+        description: Some("Team of experts — multi-agent orchestration"),
     },
     ModelObject {
-        id: "grok-420",
+        id: "grok-4-3",
         object: "model",
         created: 1740000000,
         owned_by: "xai",
-        description: Some("Multi-agent orchestration"),
-    },
-    ModelObject {
-        id: "grok-4-mini-thinking",
-        object: "model",
-        created: 1720000000,
-        owned_by: "xai",
-        description: Some("Fast reasoning model"),
-    },
-    ModelObject {
-        id: "grok-4-1",
-        object: "model",
-        created: 1730000000,
-        owned_by: "xai",
-        description: Some("Latest non-thinking model"),
-    },
-    ModelObject {
-        id: "grok-4-1-thinking",
-        object: "model",
-        created: 1730000000,
-        owned_by: "xai",
-        description: Some("Latest reasoning model"),
-    },
-    ModelObject {
-        id: "grok-4-1-nightly",
-        object: "model",
-        created: 1730000000,
-        owned_by: "xai",
-        description: Some("Experimental nightly build"),
-    },
-    ModelObject {
-        id: "grok-2",
-        object: "model",
-        created: 1700000000,
-        owned_by: "xai",
-        description: Some("Legacy model"),
-    },
-    ModelObject {
-        id: "grok-3",
-        object: "model",
-        created: 1710000000,
-        owned_by: "xai",
-        description: None,
-    },
-    ModelObject {
-        id: "grok-3-mini",
-        object: "model",
-        created: 1710000000,
-        owned_by: "xai",
-        description: None,
-    },
-    ModelObject {
-        id: "grok-4",
-        object: "model",
-        created: 1720000000,
-        owned_by: "xai",
-        description: None,
-    },
-    ModelObject {
-        id: "grok-4-mini",
-        object: "model",
-        created: 1720000000,
-        owned_by: "xai",
-        description: None,
+        description: Some("Grok 4.3 (beta) — early access"),
     },
 ];
 
