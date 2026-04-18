@@ -581,10 +581,7 @@ pub async fn chat_completions(
 
     let mut grok_req = NewConversationRequest::new(&history);
     grok_req.temporary = Some(true);
-    let instructions: Vec<String> = tool_block
-        .into_iter()
-        .chain(system_parts)
-        .collect();
+    let instructions: Vec<String> = tool_block.into_iter().chain(system_parts).collect();
     if !instructions.is_empty() {
         grok_req.options.custom_instructions = Some(instructions.join("\n\n"));
     }
