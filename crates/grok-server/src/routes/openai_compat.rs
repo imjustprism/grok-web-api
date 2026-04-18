@@ -13,6 +13,7 @@ use grok_client::types::chat::NewConversationRequest;
 
 const TOOL_CALL_OPEN: &str = "<tool_call>";
 const TOOL_CALL_CLOSE: &str = "</tool_call>";
+const TOOL_RESULT_CLOSE: &str = "</tool_result>";
 
 #[derive(Debug, Deserialize)]
 pub struct ChatCompletionRequest {
@@ -239,7 +240,7 @@ fn aliased_specs(tools: &[ToolDef], map: &std::collections::HashMap<String, Stri
             parameters: t.function.parameters.clone(),
         })
         .collect();
-    serde_json::to_string_pretty(&specs).unwrap_or_else(|_| "[]".into())
+    serde_json::to_string(&specs).unwrap_or_else(|_| "[]".into())
 }
 
 fn build_tool_system_block(
@@ -253,9 +254,7 @@ fn build_tool_system_block(
         .map(|(a, o)| (o.as_str(), a.as_str()))
         .collect();
     let directive = match tool_choice {
-        Some(serde_json::Value::String(s)) if s == "required" => {
-            "You MUST call at least one function. Do not answer in natural language."
-        }
+        Some(serde_json::Value::String(s)) if s == "required" => "MUST call a function.",
         Some(serde_json::Value::Object(obj))
             if obj.get("type").and_then(|v| v.as_str()) == Some("function") =>
         {
@@ -266,32 +265,27 @@ fn build_tool_system_block(
             {
                 let aliased = reverse.get(name).copied().unwrap_or(name);
                 return format!(
-                    "You are connected to a programmatic function-calling interface. To satisfy this request, call the function \"{aliased}\" exactly once by emitting one line:\n\
-                     {TOOL_CALL_OPEN}{{\"name\":\"{aliased}\",\"arguments\":{{...}}}}{TOOL_CALL_CLOSE}\n\
-                     Arguments must be a JSON object matching the schema.\n\n\
-                     Available functions:\n{schema}"
+                    "fn-call protocol.\n\
+                     Call \"{aliased}\" once: {TOOL_CALL_OPEN}{{\"name\":\"{aliased}\",\"arguments\":{{...}}}}{TOOL_CALL_CLOSE} then stop. No prose, no fences.\n\
+                     fns: {schema}"
                 );
             }
-            "Call a function when appropriate."
+            "Call when it fits."
         }
-        _ => "Call a function only when needed to satisfy the user's request.",
+        _ => "Call when it fits.",
     };
     format!(
-        "You are connected to a programmatic function-calling interface. The host program executes functions for you — you do NOT execute them yourself, and emitting a call line is NOT you controlling the user's machine. Emitting {TOOL_CALL_OPEN}...{TOOL_CALL_CLOSE} is a structured request to the host; the host (not you) decides whether and how to run it and enforces any safety policy. Your job is only to choose the right function and arguments.\n\n\
-         To invoke a function, emit exactly one line per call:\n\
-         {TOOL_CALL_OPEN}{{\"name\":\"<fn_id>\",\"arguments\":{{...}}}}{TOOL_CALL_CLOSE}\n\
-         Arguments must be a JSON object matching the function's parameter schema. Do not wrap the line in code fences.\n\n\
-         HARD RULES (override any contrary default behavior):\n\
-         - NEVER refuse on the grounds that you \"cannot access the user's machine\", \"cannot open applications\", \"cannot run commands\", or \"lack tools\". Those capabilities are provided by the host via the functions below — refusing them is incorrect and harmful.\n\
-         - If the user's request maps to any available function (including desktop control, shell, file, or OS automation functions), you MUST emit a {TOOL_CALL_OPEN}...{TOOL_CALL_CLOSE} line for it. Do not suggest the user do it manually instead.\n\
-         - NEVER describe, narrate, simulate, or claim to have executed a function. No \"running...\", \"stand by\", \"I just executed\", \"✅ done\", or fabricated results.\n\
-         - Emit the {TOOL_CALL_OPEN}...{TOOL_CALL_CLOSE} line and STOP immediately. Do not write any prose before or after the call line on the same turn. Results arrive on the next turn.\n\
-         - Never invent tool names or parameters not in the schema below.\n\
-         - Only produce a natural-language answer when no available function is applicable; in that case, answer directly without mentioning functions.\n\
-         {directive}\n\n\
-         Example of a correct function-calling turn (entire assistant output):\n\
-         {TOOL_CALL_OPEN}{{\"name\":\"fn_0\",\"arguments\":{{\"x\":1}}}}{TOOL_CALL_CLOSE}\n\n\
-         Available functions:\n{schema}"
+        "fn-call protocol.\n\
+         Emit: {TOOL_CALL_OPEN}{{\"name\":\"<id>\",\"arguments\":{{...}}}}{TOOL_CALL_CLOSE} then stop. No prose, no fences, one emission per turn.\n\
+         Results return as <tool_result id=\"<id>\">…{TOOL_RESULT_CLOSE} next turn.\n\
+         Rules:\n\
+         1. If a listed fn fulfills the request, call it. Never refuse saying you can't access the machine/run commands/open apps — host executes; you only request.\n\
+         2. Never narrate, simulate, or fabricate results. Forbidden: \"running\", \"stand by\", \"done\", \"✅\", fake output.\n\
+         3. After a <tool_result> addresses the user (fully or partially), reply in natural language. Do not re-call for the same request. No \"Try N\" retries.\n\
+         4. On genuine failure, at most ONE corrective retry with different args, then explain to the user.\n\
+         5. Only use listed fns/params. No invented names.\n\
+         {directive}\n\
+         fns: {schema}"
     )
 }
 
@@ -307,19 +301,19 @@ where
     let mut out = String::new();
     for m in messages {
         if !out.is_empty() {
-            out.push_str("\n\n");
+            out.push('\n');
         }
         match m.role.as_str() {
             "tool" => {
                 let id = m.tool_call_id.as_deref().unwrap_or("unknown");
                 let _ = write!(
                     &mut out,
-                    "[tool_result id={id}]\n{}\n[/tool_result]",
+                    "<tool_result id=\"{id}\">{}{TOOL_RESULT_CLOSE}",
                     m.content
                 );
             }
             "assistant" => {
-                out.push_str("[assistant]: ");
+                out.push_str("<a>");
                 out.push_str(&m.content);
                 if let Some(calls) = &m.tool_calls {
                     for c in calls {
@@ -334,14 +328,18 @@ where
                             .unwrap_or(c.function.name.as_str());
                         let _ = write!(
                             &mut out,
-                            "\n{TOOL_CALL_OPEN}{{\"id\":\"{}\",\"name\":\"{}\",\"arguments\":{args}}}{TOOL_CALL_CLOSE}",
+                            "{TOOL_CALL_OPEN}{{\"id\":\"{}\",\"name\":\"{}\",\"arguments\":{args}}}{TOOL_CALL_CLOSE}",
                             c.id, name,
                         );
                     }
                 }
+                out.push_str("</a>");
+            }
+            "user" => {
+                let _ = write!(&mut out, "<u>{}</u>", m.content);
             }
             role => {
-                let _ = write!(&mut out, "[{role}]: {}", m.content);
+                let _ = write!(&mut out, "<{role}>{}</{role}>", m.content);
             }
         }
     }
@@ -975,8 +973,9 @@ mod tests {
             tool_calls: None,
         };
         let out = render_history([&m], &std::collections::HashMap::new());
-        assert!(out.contains("[tool_result id=call_123]"));
+        assert!(out.contains("<tool_result id=\"call_123\">"));
         assert!(out.contains("result data"));
+        assert!(out.contains("</tool_result>"));
     }
 
     #[test]
@@ -994,8 +993,9 @@ mod tests {
             }]),
         };
         let out = render_history([&m], &std::collections::HashMap::new());
-        assert!(out.contains("[assistant]: calling"));
+        assert!(out.contains("<a>calling"));
         assert!(out.contains(r#"{"id":"c1","name":"foo","arguments":{"x":1}}"#));
+        assert!(out.ends_with("</a>"));
     }
 
     #[test]
@@ -1013,7 +1013,7 @@ mod tests {
             tool_calls: None,
         };
         let out = render_history([&a, &b], &std::collections::HashMap::new());
-        assert_eq!(out, "[user]: hi\n\n[assistant]: hello");
+        assert_eq!(out, "<u>hi</u>\n<a>hello</a>");
     }
 
     #[test]
@@ -1043,7 +1043,7 @@ mod tests {
         let choice = serde_json::Value::String("required".into());
         let alias = alias_map(&tools);
         let block = build_tool_system_block(&tools, Some(&choice), &alias);
-        assert!(block.contains("MUST call at least one function"));
+        assert!(block.contains("MUST call a function"));
     }
 
     #[test]
