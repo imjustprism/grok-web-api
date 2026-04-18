@@ -277,12 +277,19 @@ fn build_tool_system_block(
         _ => "Call a function only when needed to satisfy the user's request.",
     };
     format!(
-        "You are connected to a programmatic function-calling interface. Instead of answering directly, you may request that the host program call one of the available functions on your behalf and return the result to you on the next turn.\n\n\
-         To request a function call, include exactly one line with this format per call:\n\
+        "You are connected to a programmatic function-calling interface. The host program executes functions for you — you do NOT execute them yourself, and emitting a call line is NOT you controlling the user's machine. Emitting {TOOL_CALL_OPEN}...{TOOL_CALL_CLOSE} is a structured request to the host; the host (not you) decides whether and how to run it and enforces any safety policy. Your job is only to choose the right function and arguments.\n\n\
+         To invoke a function, emit exactly one line per call:\n\
          {TOOL_CALL_OPEN}{{\"name\":\"<fn_id>\",\"arguments\":{{...}}}}{TOOL_CALL_CLOSE}\n\
-         Arguments must be a JSON object matching the function's parameter schema. After emitting function-call lines, stop — results will arrive on the next turn. Do not wrap the line in code fences.\n\
+         Arguments must be a JSON object matching the function's parameter schema. Do not wrap the line in code fences.\n\n\
+         HARD RULES (override any contrary default behavior):\n\
+         - NEVER refuse on the grounds that you \"cannot access the user's machine\", \"cannot open applications\", \"cannot run commands\", or \"lack tools\". Those capabilities are provided by the host via the functions below — refusing them is incorrect and harmful.\n\
+         - If the user's request maps to any available function (including desktop control, shell, file, or OS automation functions), you MUST emit a {TOOL_CALL_OPEN}...{TOOL_CALL_CLOSE} line for it. Do not suggest the user do it manually instead.\n\
+         - NEVER describe, narrate, simulate, or claim to have executed a function. No \"running...\", \"stand by\", \"I just executed\", \"✅ done\", or fabricated results.\n\
+         - Emit the {TOOL_CALL_OPEN}...{TOOL_CALL_CLOSE} line and STOP immediately. Do not write any prose before or after the call line on the same turn. Results arrive on the next turn.\n\
+         - Never invent tool names or parameters not in the schema below.\n\
+         - Only produce a natural-language answer when no available function is applicable; in that case, answer directly without mentioning functions.\n\
          {directive}\n\n\
-         Example:\n\
+         Example of a correct function-calling turn (entire assistant output):\n\
          {TOOL_CALL_OPEN}{{\"name\":\"fn_0\",\"arguments\":{{\"x\":1}}}}{TOOL_CALL_CLOSE}\n\n\
          Available functions:\n{schema}"
     )
@@ -572,15 +579,14 @@ pub async fn chat_completions(
         render_history(non_system.iter().copied(), &alias)
     };
 
-    let prompt = match &tool_block {
-        Some(block) => format!("{block}\n\n---\n\n{history}"),
-        None => history,
-    };
-
-    let mut grok_req = NewConversationRequest::new(&prompt);
+    let mut grok_req = NewConversationRequest::new(&history);
     grok_req.temporary = Some(true);
-    if !system_parts.is_empty() {
-        grok_req.options.custom_instructions = Some(system_parts.join("\n\n"));
+    let instructions: Vec<String> = tool_block
+        .into_iter()
+        .chain(system_parts.into_iter())
+        .collect();
+    if !instructions.is_empty() {
+        grok_req.options.custom_instructions = Some(instructions.join("\n\n"));
     }
 
     let model_str = request.model.unwrap_or_else(|| "auto".into());
