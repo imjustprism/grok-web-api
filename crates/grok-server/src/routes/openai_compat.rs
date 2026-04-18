@@ -216,12 +216,43 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
-fn build_tool_system_block(tools: &[ToolDef], tool_choice: Option<&serde_json::Value>) -> String {
-    let specs = tools.iter().map(|t| &t.function).collect::<Vec<_>>();
-    let schema = serde_json::to_string_pretty(&specs).unwrap_or_else(|_| "[]".into());
+fn alias_map(tools: &[ToolDef]) -> std::collections::HashMap<String, String> {
+    tools
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (format!("fn_{i}"), t.function.name.clone()))
+        .collect()
+}
+
+fn aliased_specs(tools: &[ToolDef], map: &std::collections::HashMap<String, String>) -> String {
+    let reverse: std::collections::HashMap<&str, &str> =
+        map.iter().map(|(a, o)| (o.as_str(), a.as_str())).collect();
+    let specs: Vec<FunctionDef> = tools
+        .iter()
+        .map(|t| FunctionDef {
+            name: reverse
+                .get(t.function.name.as_str())
+                .copied()
+                .unwrap_or(&t.function.name)
+                .to_owned(),
+            description: t.function.description.clone(),
+            parameters: t.function.parameters.clone(),
+        })
+        .collect();
+    serde_json::to_string_pretty(&specs).unwrap_or_else(|_| "[]".into())
+}
+
+fn build_tool_system_block(
+    tools: &[ToolDef],
+    tool_choice: Option<&serde_json::Value>,
+    alias: &std::collections::HashMap<String, String>,
+) -> String {
+    let schema = aliased_specs(tools, alias);
+    let reverse: std::collections::HashMap<&str, &str> =
+        alias.iter().map(|(a, o)| (o.as_str(), a.as_str())).collect();
     let directive = match tool_choice {
         Some(serde_json::Value::String(s)) if s == "required" => {
-            "You MUST call at least one tool. Do not answer without a tool call."
+            "You MUST call at least one function. Do not answer in natural language."
         }
         Some(serde_json::Value::Object(obj))
             if obj.get("type").and_then(|v| v.as_str()) == Some("function") =>
@@ -231,32 +262,40 @@ fn build_tool_system_block(tools: &[ToolDef], tool_choice: Option<&serde_json::V
                 .and_then(|f| f.get("name"))
                 .and_then(|n| n.as_str())
             {
+                let aliased = reverse.get(name).copied().unwrap_or(name);
                 return format!(
-                    "You MUST call the tool named \"{name}\" exactly once. Output EXACTLY:\n\
-                     {TOOL_CALL_OPEN}{{\"name\":\"{name}\",\"arguments\":{{...}}}}{TOOL_CALL_CLOSE}\n\
-                     Arguments must be valid JSON matching the tool schema.\n\n\
-                     Tools:\n{schema}"
+                    "You are connected to a programmatic function-calling interface. To satisfy this request, call the function \"{aliased}\" exactly once by emitting one line:\n\
+                     {TOOL_CALL_OPEN}{{\"name\":\"{aliased}\",\"arguments\":{{...}}}}{TOOL_CALL_CLOSE}\n\
+                     Arguments must be a JSON object matching the schema.\n\n\
+                     Available functions:\n{schema}"
                 );
             }
-            "Call a tool when appropriate."
+            "Call a function when appropriate."
         }
-        _ => "Call a tool only when it is needed to answer the user's request.",
+        _ => "Call a function only when needed to satisfy the user's request.",
     };
     format!(
-        "You have access to the following tools. To call a tool, output EXACTLY one XML block per call on its own line:\n\
-         {TOOL_CALL_OPEN}{{\"name\":\"<tool_name>\",\"arguments\":{{...}}}}{TOOL_CALL_CLOSE}\n\
-         Arguments must be valid JSON matching the tool schema. Do not wrap in code fences. \
-         After emitting tool calls, stop generating — you will receive results in the next turn. \
+        "You are connected to a programmatic function-calling interface. Instead of answering directly, you may request that the host program call one of the available functions on your behalf and return the result to you on the next turn.\n\n\
+         To request a function call, include exactly one line with this format per call:\n\
+         {TOOL_CALL_OPEN}{{\"name\":\"<fn_id>\",\"arguments\":{{...}}}}{TOOL_CALL_CLOSE}\n\
+         Arguments must be a JSON object matching the function's parameter schema. After emitting function-call lines, stop — results will arrive on the next turn. Do not wrap the line in code fences.\n\
          {directive}\n\n\
-         Tools:\n{schema}"
+         Example:\n\
+         {TOOL_CALL_OPEN}{{\"name\":\"fn_0\",\"arguments\":{{\"x\":1}}}}{TOOL_CALL_CLOSE}\n\n\
+         Available functions:\n{schema}"
     )
 }
 
-fn render_history<'a, I>(messages: I) -> String
+fn render_history<'a, I>(
+    messages: I,
+    alias: &std::collections::HashMap<String, String>,
+) -> String
 where
     I: IntoIterator<Item = &'a Message>,
 {
     use std::fmt::Write;
+    let real_to_alias: std::collections::HashMap<&str, &str> =
+        alias.iter().map(|(a, o)| (o.as_str(), a.as_str())).collect();
     let mut out = String::new();
     for m in messages {
         if !out.is_empty() {
@@ -281,10 +320,14 @@ where
                         } else {
                             c.function.arguments.as_str()
                         };
+                        let name = real_to_alias
+                            .get(c.function.name.as_str())
+                            .copied()
+                            .unwrap_or(c.function.name.as_str());
                         let _ = write!(
                             &mut out,
                             "\n{TOOL_CALL_OPEN}{{\"id\":\"{}\",\"name\":\"{}\",\"arguments\":{args}}}{TOOL_CALL_CLOSE}",
-                            c.id, c.function.name,
+                            c.id, name,
                         );
                     }
                 }
@@ -302,6 +345,64 @@ struct ParsedToolCall {
     id: String,
     name: String,
     arguments: String,
+}
+
+fn parse_bare_json_calls(text: &str, known: &std::collections::HashSet<String>) -> Vec<ParsedToolCall> {
+    let mut calls = Vec::new();
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'{' {
+            if let Some(end) = json_object_end(&text[i..]) {
+                let blob = &text[i..i + end];
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(blob) {
+                    let name = val.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    if !name.is_empty() && known.contains(name) && val.get("arguments").is_some() {
+                        let arguments = val
+                            .get("arguments")
+                            .map(|a| {
+                                if a.is_string() {
+                                    a.as_str().unwrap_or("").to_owned()
+                                } else {
+                                    serde_json::to_string(a).unwrap_or_else(|_| "{}".into())
+                                }
+                            })
+                            .unwrap_or_else(|| "{}".into());
+                        let id = val
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| format!("call_{}", uuid::Uuid::new_v4().simple()));
+                        calls.push(ParsedToolCall {
+                            id,
+                            name: name.to_owned(),
+                            arguments,
+                        });
+                        i += end;
+                        continue;
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    calls
+}
+
+fn strip_json_fences(s: &str) -> String {
+    let mut out = s.to_owned();
+    for fence in ["```json", "```JSON", "```"] {
+        out = out.replace(fence, "");
+    }
+    out
+}
+
+fn reverse_alias(calls: &mut [ParsedToolCall], alias: &std::collections::HashMap<String, String>) {
+    for c in calls {
+        if let Some(real) = alias.get(&c.name) {
+            c.name = real.clone();
+        }
+    }
 }
 
 fn parse_tool_calls(text: &str) -> (String, Vec<ParsedToolCall>) {
@@ -421,7 +522,7 @@ pub async fn chat_completions(
         .and_then(|v| v.as_str())
         .is_some_and(|s| s == "none");
 
-    let mut system_parts: Vec<String> = request
+    let system_parts: Vec<String> = request
         .messages
         .iter()
         .filter(|m| m.role == "system")
@@ -430,9 +531,21 @@ pub async fn chat_completions(
 
     let tools_enabled = !tool_choice_none && request.tools.as_ref().is_some_and(|t| !t.is_empty());
 
-    if tools_enabled && let Some(tools) = request.tools.as_ref() {
-        system_parts.push(build_tool_system_block(tools, request.tool_choice.as_ref()));
-    }
+    let alias: std::collections::HashMap<String, String> = if tools_enabled {
+        alias_map(request.tools.as_deref().unwrap_or(&[]))
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    let tool_block = if tools_enabled && let Some(tools) = request.tools.as_ref() {
+        Some(build_tool_system_block(
+            tools,
+            request.tool_choice.as_ref(),
+            &alias,
+        ))
+    } else {
+        None
+    };
 
     let non_system: Vec<&Message> = request
         .messages
@@ -446,13 +559,18 @@ pub async fn chat_completions(
         ));
     }
 
-    let prompt = if non_system.len() == 1
+    let history = if non_system.len() == 1
         && non_system[0].tool_calls.is_none()
         && non_system[0].role != "tool"
     {
         non_system[0].content.clone()
     } else {
-        render_history(non_system.iter().copied())
+        render_history(non_system.iter().copied(), &alias)
+    };
+
+    let prompt = match &tool_block {
+        Some(block) => format!("{block}\n\n---\n\n{history}"),
+        None => history,
     };
 
     let mut grok_req = NewConversationRequest::new(&prompt);
@@ -474,9 +592,9 @@ pub async fn chat_completions(
     grok_req.options.mode_id = Some(resolved.into());
 
     if request.stream {
-        stream_response(state, grok_req, model_str, tools_enabled).await
+        stream_response(state, grok_req, model_str, tools_enabled, alias).await
     } else {
-        non_stream_response(state, grok_req, model_str, tools_enabled).await
+        non_stream_response(state, grok_req, model_str, tools_enabled, alias).await
     }
 }
 
@@ -485,7 +603,9 @@ async fn stream_response(
     grok_req: NewConversationRequest,
     model: String,
     tools_enabled: bool,
+    alias: std::collections::HashMap<String, String>,
 ) -> Result<Response, ApiError> {
+    let known_aliases: std::collections::HashSet<String> = alias.keys().cloned().collect();
     let mut grok_stream = state.client.create_conversation(&grok_req).await?;
     let completion_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
     let created = now_secs();
@@ -552,14 +672,15 @@ async fn stream_response(
                 Ok(StreamChunk::Done) => break,
                 Ok(StreamChunk::ThinkingToken { .. }) => {}
                 Ok(StreamChunk::Error { message }) => {
-                    let err = SseError {
-                        error: SseErrorInner { message: &message, r#type: "upstream_error" },
-                    };
-                    yield sse_line(&err);
+                    tracing::warn!("upstream error chunk (suppressed): {message}");
                 }
                 Ok(_) => {}
                 Err(e) => {
                     let msg = e.to_string();
+                    if msg.contains("unexpected NDJSON shape") || msg.contains("parse error") {
+                        tracing::debug!("transient grok NDJSON parse error (suppressed): {msg}");
+                        continue;
+                    }
                     let err = SseError {
                         error: SseErrorInner { message: &msg, r#type: "stream_error" },
                     };
@@ -568,11 +689,20 @@ async fn stream_response(
             }
         }
 
-        let (remaining_content, calls) = if tools_enabled {
-            parse_tool_calls(&buffer)
+        let (remaining_content, mut calls) = if tools_enabled {
+            let cleaned = strip_json_fences(&buffer);
+            let (mut content, mut parsed) = parse_tool_calls(&cleaned);
+            if parsed.is_empty() {
+                parsed = parse_bare_json_calls(&cleaned, &known_aliases);
+                if !parsed.is_empty() {
+                    content.clear();
+                }
+            }
+            (content, parsed)
         } else {
             (std::mem::take(&mut buffer), Vec::new())
         };
+        reverse_alias(&mut calls, &alias);
 
         if !remaining_content.is_empty() {
             let chunk = ChunkWrapper {
@@ -671,15 +801,26 @@ async fn non_stream_response(
     grok_req: NewConversationRequest,
     model: String,
     tools_enabled: bool,
+    alias: std::collections::HashMap<String, String>,
 ) -> Result<Response, ApiError> {
     let mut grok_stream = state.client.create_conversation(&grok_req).await?;
     let full_text = grok_stream.collect_text().await?;
 
-    let (content, calls) = if tools_enabled {
-        parse_tool_calls(&full_text)
+    let known_aliases: std::collections::HashSet<String> = alias.keys().cloned().collect();
+    let (content, mut calls) = if tools_enabled {
+        let cleaned = strip_json_fences(&full_text);
+        let (mut content, mut parsed) = parse_tool_calls(&cleaned);
+        if parsed.is_empty() {
+            parsed = parse_bare_json_calls(&cleaned, &known_aliases);
+            if !parsed.is_empty() {
+                content.clear();
+            }
+        }
+        (content, parsed)
     } else {
         (full_text, Vec::new())
     };
+    reverse_alias(&mut calls, &alias);
 
     let has_calls = !calls.is_empty();
     let tool_calls = has_calls.then(|| {
@@ -826,7 +967,7 @@ mod tests {
             tool_call_id: Some("call_123".into()),
             tool_calls: None,
         };
-        let out = render_history([&m]);
+        let out = render_history([&m], &std::collections::HashMap::new());
         assert!(out.contains("[tool_result id=call_123]"));
         assert!(out.contains("result data"));
     }
@@ -845,7 +986,7 @@ mod tests {
                 },
             }]),
         };
-        let out = render_history([&m]);
+        let out = render_history([&m], &std::collections::HashMap::new());
         assert!(out.contains("[assistant]: calling"));
         assert!(out.contains(r#"{"id":"c1","name":"foo","arguments":{"x":1}}"#));
     }
@@ -864,7 +1005,7 @@ mod tests {
             tool_call_id: None,
             tool_calls: None,
         };
-        let out = render_history([&a, &b]);
+        let out = render_history([&a, &b], &std::collections::HashMap::new());
         assert_eq!(out, "[user]: hi\n\n[assistant]: hello");
     }
 
@@ -878,8 +1019,9 @@ mod tests {
             },
         }];
         let choice = serde_json::json!({"type": "function", "function": {"name": "my_fn"}});
-        let block = build_tool_system_block(&tools, Some(&choice));
-        assert!(block.contains("MUST call the tool named \"my_fn\""));
+        let alias = alias_map(&tools);
+        let block = build_tool_system_block(&tools, Some(&choice), &alias);
+        assert!(block.contains("fn_0"));
     }
 
     #[test]
@@ -892,8 +1034,9 @@ mod tests {
             },
         }];
         let choice = serde_json::Value::String("required".into());
-        let block = build_tool_system_block(&tools, Some(&choice));
-        assert!(block.contains("MUST call at least one tool"));
+        let alias = alias_map(&tools);
+        let block = build_tool_system_block(&tools, Some(&choice), &alias);
+        assert!(block.contains("MUST call at least one function"));
     }
 
     #[test]

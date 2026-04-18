@@ -234,7 +234,7 @@ struct RawResult {
     is_thinking: bool,
     #[serde(default)]
     is_soft_stop: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_vec")]
     web_search_results: Option<Vec<WebSearchResult>>,
     #[serde(default)]
     query: Option<String>,
@@ -258,12 +258,38 @@ struct RawResponse {
     is_thinking: bool,
     #[serde(default)]
     is_soft_stop: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_vec")]
     web_search_results: Option<Vec<WebSearchResult>>,
     #[serde(default)]
     query: Option<String>,
     #[serde(default)]
     generated_image_url: Option<String>,
+}
+
+fn lenient_vec<'de, D, T>(de: D) -> std::result::Result<Option<Vec<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    use serde::Deserialize;
+    let value = Option::<serde_json::Value>::deserialize(de)?;
+    let Some(value) = value else { return Ok(None) };
+    match value {
+        serde_json::Value::Null => Ok(None),
+        serde_json::Value::Array(items) => items
+            .into_iter()
+            .map(serde_json::from_value::<T>)
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map(Some)
+            .or(Ok(None)),
+        serde_json::Value::Object(map) => map
+            .into_values()
+            .map(serde_json::from_value::<T>)
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map(Some)
+            .or(Ok(None)),
+        _ => Ok(None),
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -276,8 +302,13 @@ struct RawError {
 fn parse_ndjson_line(line: &str) -> Result<Option<StreamChunk>> {
     let value: serde_json::Value = serde_json::from_str(line)
         .map_err(|e| GrokError::StreamParse(format!("failed to parse NDJSON: {e}")))?;
-    let raw: RawLine = serde_json::from_value(value.clone())
-        .map_err(|e| GrokError::StreamParse(format!("unexpected NDJSON shape: {e}")))?;
+    let raw: RawLine = match serde_json::from_value(value.clone()) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::debug!(err = %e, "skipping NDJSON line with unexpected shape");
+            return Ok(None);
+        }
+    };
 
     if let Some(err) = raw.error {
         if let Some(msg) = err.message {
