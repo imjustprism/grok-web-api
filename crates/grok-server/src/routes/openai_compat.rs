@@ -6,7 +6,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ApiError, AppJson};
-use crate::routes::models::MODE_IDS;
+use crate::routes::models::{GROK_4_3_UPSTREAM, MODE_IDS};
 use crate::state::AppState;
 use grok_client::streaming::StreamChunk;
 use grok_client::types::chat::NewConversationRequest;
@@ -585,14 +585,16 @@ pub async fn chat_completions(
     }
 
     let model_str = request.model.unwrap_or_else(|| "auto".into());
-    let resolved = if MODE_IDS.contains(&model_str.as_str()) {
-        model_str.clone()
-    } else {
-        tracing::debug!(
-            requested = %model_str,
-            "unknown model id, falling back to 'auto' (supported: auto, fast, expert, heavy, grok-4-3)"
-        );
-        "auto".to_owned()
+    let resolved = match model_str.as_str() {
+        "grok-4-3" => GROK_4_3_UPSTREAM.to_owned(),
+        m if MODE_IDS.contains(&m) => m.to_owned(),
+        _ => {
+            tracing::debug!(
+                requested = %model_str,
+                "unknown model id, falling back to 'auto' (supported: auto, fast, expert, heavy, grok-4-3)"
+            );
+            "auto".to_owned()
+        }
     };
     grok_req.options.mode_id = Some(resolved.into());
 

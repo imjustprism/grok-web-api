@@ -213,6 +213,19 @@ impl GrokClient {
         self.check_response(response).await
     }
 
+    pub async fn post_base<B: serde::Serialize>(&self, path: &str, body: &B) -> Result<Response> {
+        let url = format!("{}/{}", self.base_url, path.trim_start_matches('/'));
+        let response = self
+            .http
+            .post(&url)
+            .headers(self.static_headers.clone())
+            .json(body)
+            .send()
+            .await
+            .map_err(GrokError::Request)?;
+        self.check_response(response).await
+    }
+
     pub async fn get(&self, path: &str) -> Result<Response> {
         let rb = self.request(wreq::Method::GET, path).await?;
         self.send(rb).await

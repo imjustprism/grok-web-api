@@ -55,4 +55,9 @@ impl GrokClient {
     pub async fn share_voice_chat(&self, request: &ShareVoiceChatRequest) -> Result<Response> {
         self.post("voice/share", request).await
     }
+
+    pub async fn livekit_token(&self) -> Result<Response> {
+        self.post_base("rest/livekit/tokens", &serde_json::json!({}))
+            .await
+    }
 }

@@ -140,6 +140,7 @@ pub fn router(state: AppState) -> Router {
             get(voice::read_response_audio),
         )
         .route("/v1/voice/tts", post(voice::tts))
+        .route("/v1/voice/livekit/token", post(voice::livekit_token))
         .route(
             "/v1/artifacts/{id}",
             get(artifacts::get_artifact).put(artifacts::update_artifact),
