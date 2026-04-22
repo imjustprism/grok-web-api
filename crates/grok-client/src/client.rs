@@ -214,11 +214,13 @@ impl GrokClient {
     }
 
     pub async fn post_base<B: serde::Serialize>(&self, path: &str, body: &B) -> Result<Response> {
-        let url = format!("{}/{}", self.base_url, path.trim_start_matches('/'));
+        let trimmed = path.trim_start_matches('/');
+        let url = format!("{}/{}", self.base_url, trimmed);
+        let headers = self.build_headers(&format!("/{trimmed}"), "POST").await;
         let response = self
             .http
             .post(&url)
-            .headers(self.static_headers.clone())
+            .headers(headers)
             .json(body)
             .send()
             .await
