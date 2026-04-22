@@ -81,7 +81,7 @@ Five modes map to the options grok.com exposes in its UI.
 | `fast` | Fast | Quick responses |
 | `expert` | Expert | Deeper reasoning |
 | `heavy` | Heavy | Multi-agent orchestration. Requires Heavy plan |
-| `grok-4-3` | Grok 4.3 | Early access. Requires matching plan |
+| `grok-4-3` | Grok 4.3 | Early access. Remaps to upstream `grok-420-computer-use-sa` so requests debit the 4.3 rate-limit bucket |
 
 Unknown model IDs fall back to `auto` with a debug log. The server does not expose `grok-2`, `grok-3`, `grok-4`, `grok-4-mini`, or other legacy names because the web client no longer routes to them.
 
@@ -316,6 +316,14 @@ curl http://localhost:3000/v1/models
 | `GET` | `/v1/voice/read/:id` | TTS stream |
 | `GET` | `/v1/voice/audio/:id` | TTS audio file |
 | `POST` | `/v1/voice/tts` | Text-to-speech |
+| `POST` | `/v1/voice/livekit/token` | Issue LiveKit JWT for realtime voice against `wss://livekit.grok.com` |
+
+Realtime voice flow: call `POST /v1/voice/livekit/token`, take the returned `token`, connect any [LiveKit SDK](https://docs.livekit.io/) to `wss://livekit.grok.com` with it. The server-assigned room auto-admits the `prod` voice agent, which subscribes to your mic track and publishes synthesized audio back. The server proxies only the token issuance; media flows directly from client to LiveKit over WebRTC.
+
+```bash
+curl -X POST http://localhost:3000/v1/voice/livekit/token \
+  -H "Authorization: Bearer $GROK_API_KEY"
+```
 
 #### Memory and Artifacts
 
