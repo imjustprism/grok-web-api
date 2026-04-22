@@ -73,3 +73,14 @@ pub async fn tts(
         .map_err(grok_client::error::GrokError::Request)?;
     Ok(Json(body))
 }
+
+pub async fn livekit_token(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let response = state.client.livekit_token().await?;
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(grok_client::error::GrokError::Request)?;
+    Ok(Json(body))
+}

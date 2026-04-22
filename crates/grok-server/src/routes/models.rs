@@ -7,6 +7,8 @@ use crate::error::ApiError;
 
 pub const MODE_IDS: &[&str] = &["auto", "fast", "expert", "heavy", "grok-4-3"];
 
+pub const GROK_4_3_UPSTREAM: &str = "grok-420-computer-use-sa";
+
 #[derive(Serialize)]
 struct ModelObject {
     id: &'static str,
