@@ -6,10 +6,10 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ApiError, AppJson};
-use crate::routes::models::GROK_4_3_UPSTREAM;
 use crate::state::AppState;
 use grok_client::streaming::StreamChunk;
-use grok_client::types::chat::NewConversationRequest;
+use grok_client::types::chat::{ChatOptions, NewConversationRequest};
+use grok_client::types::models::ModelMode;
 
 const TOOL_CALL_OPEN: &str = "<tool_call>";
 const TOOL_CALL_CLOSE: &str = "</tool_call>";
@@ -89,18 +89,18 @@ impl RequestedModel {
             "fast" => Self::Fast,
             "expert" => Self::Expert,
             "heavy" => Self::Heavy,
-            "grok-4-3" => Self::Grok43,
+            "grok-43" => Self::Grok43,
             _ => return None,
         })
     }
 
-    fn upstream(self) -> &'static str {
+    fn apply(self, options: &mut ChatOptions) {
         match self {
-            Self::Auto => "auto",
-            Self::Fast => "fast",
-            Self::Expert => "expert",
-            Self::Heavy => "heavy",
-            Self::Grok43 => GROK_4_3_UPSTREAM,
+            Self::Auto => options.mode_id = Some("auto".into()),
+            Self::Fast => options.mode_id = Some("fast".into()),
+            Self::Expert => options.mode_id = Some("expert".into()),
+            Self::Heavy => options.mode_id = Some("heavy".into()),
+            Self::Grok43 => options.model_mode = Some(ModelMode::Grok43),
         }
     }
 }
@@ -706,13 +706,13 @@ pub async fn chat_completions(
 
     let model_str = request.model.unwrap_or_else(|| "auto".into());
     let resolved = RequestedModel::parse(&model_str).unwrap_or_else(|| {
-        tracing::debug!(
+        tracing::warn!(
             requested = %model_str,
-            "unknown model id, falling back to 'auto' (supported: auto, fast, expert, heavy, grok-4-3)"
+            "unknown model id, falling back to 'auto' (supported: auto, fast, expert, heavy, grok-43)"
         );
         RequestedModel::Auto
     });
-    grok_req.options.mode_id = Some(resolved.upstream().into());
+    resolved.apply(&mut grok_req.options);
 
     if request.stream {
         stream_response(state, grok_req, model_str, tools_enabled, alias).await
@@ -1140,13 +1140,18 @@ mod tests {
     }
 
     #[test]
-    fn requested_model_resolves_to_upstream() {
-        assert_eq!(RequestedModel::parse("auto").unwrap().upstream(), "auto");
-        assert_eq!(RequestedModel::parse("heavy").unwrap().upstream(), "heavy");
-        assert_eq!(
-            RequestedModel::parse("grok-4-3").unwrap().upstream(),
-            GROK_4_3_UPSTREAM
-        );
+    fn requested_model_maps_to_request_fields() {
+        let mut heavy = ChatOptions::default();
+        RequestedModel::parse("heavy").unwrap().apply(&mut heavy);
+        assert_eq!(heavy.mode_id.as_ref().map(|m| m.as_str()), Some("heavy"));
+        assert!(heavy.model_mode.is_none());
+
+        let mut g43 = ChatOptions::default();
+        RequestedModel::parse("grok-43").unwrap().apply(&mut g43);
+        assert!(matches!(g43.model_mode, Some(ModelMode::Grok43)));
+        assert!(g43.mode_id.is_none());
+
+        assert!(RequestedModel::parse("grok-4-3").is_none());
         assert!(RequestedModel::parse("gpt-4").is_none());
     }
 

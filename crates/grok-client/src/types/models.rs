@@ -89,6 +89,8 @@ pub enum ModelMode {
     Grok41Nightly,
     #[serde(rename = "grok-420")]
     Grok420,
+    #[serde(rename = "grok-43")]
+    Grok43,
     #[serde(untagged)]
     Other(String),
 }
