@@ -5,10 +5,13 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{GrokError, Result};
 
-const EPOCH: u64 = 1682924400;
+const EPOCH: u64 = 1_682_924_400;
 
 const HEADER_LEN: usize = 49;
-const TOKEN_LEN: usize = HEADER_LEN + 4 + 16 + 1;
+const COUNTER_BYTES: usize = 4;
+const HASH_BYTES: usize = 16;
+const TRAILER_BYTES: usize = 1;
+const TOKEN_LEN: usize = HEADER_LEN + COUNTER_BYTES + HASH_BYTES + TRAILER_BYTES;
 
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -48,10 +51,11 @@ impl ChallengeConfig {
         let hash_input = format!("{method}!{path}!{counter_str}{}", self.static_suffix);
         let hash = Sha256::digest(hash_input.as_bytes());
 
+        const HASH_START: usize = HEADER_LEN + COUNTER_BYTES;
         let mut raw = [0u8; TOKEN_LEN];
         raw[..HEADER_LEN].copy_from_slice(&self.static_header);
-        raw[HEADER_LEN..HEADER_LEN + 4].copy_from_slice(&(counter as u32).to_le_bytes());
-        raw[HEADER_LEN + 4..HEADER_LEN + 20].copy_from_slice(&hash[..16]);
+        raw[HEADER_LEN..HASH_START].copy_from_slice(&(counter as u32).to_le_bytes());
+        raw[HASH_START..HASH_START + HASH_BYTES].copy_from_slice(&hash[..HASH_BYTES]);
         raw[TOKEN_LEN - 1] = self.trailer_byte;
 
         let xor_key: u8 = rand::rng().random();
