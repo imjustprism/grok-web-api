@@ -1,10 +1,9 @@
-use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::{Method, header};
 use axum::response::IntoResponse;
-use futures::StreamExt;
 
 use crate::error::ApiError;
+use crate::routes::stream_body;
 use crate::state::AppState;
 
 pub async fn raw_proxy(
@@ -63,13 +62,9 @@ pub async fn raw_proxy(
         .unwrap_or("application/json")
         .to_owned();
 
-    let stream = response
-        .bytes_stream()
-        .map(|chunk| chunk.map_err(std::io::Error::other));
-
     Ok((
         status,
         [(header::CONTENT_TYPE, content_type)],
-        Body::from_stream(stream),
+        stream_body(response),
     ))
 }

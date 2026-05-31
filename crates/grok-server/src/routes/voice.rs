@@ -2,10 +2,10 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
-use futures::StreamExt;
 use serde::Deserialize;
 
 use crate::error::{ApiError, AppJson};
+use crate::routes::stream_body;
 use crate::state::AppState;
 use grok_client::types::common::{ResponseId, VoiceId};
 use grok_client::types::voice::TtsRequest;
@@ -22,12 +22,9 @@ fn stream_binary(response: grok_client::wreq::Response, fallback_ct: &str) -> Re
         .and_then(|v| v.to_str().ok())
         .unwrap_or(fallback_ct)
         .to_owned();
-    let stream = response
-        .bytes_stream()
-        .map(|chunk| chunk.map_err(std::io::Error::other));
     (
         [(header::CONTENT_TYPE, content_type)],
-        axum::body::Body::from_stream(stream),
+        stream_body(response),
     )
         .into_response()
 }
@@ -62,25 +59,25 @@ pub async fn read_response_audio(
     Ok(stream_binary(response, "audio/mpeg"))
 }
 
-pub async fn tts(
-    State(state): State<AppState>,
-    AppJson(request): AppJson<TtsRequest>,
+async fn json_passthrough(
+    response: grok_client::wreq::Response,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let response = state.client.tts(&request).await?;
-    let body: serde_json::Value = response
+    let body = response
         .json()
         .await
         .map_err(grok_client::error::GrokError::Request)?;
     Ok(Json(body))
 }
 
+pub async fn tts(
+    State(state): State<AppState>,
+    AppJson(request): AppJson<TtsRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    json_passthrough(state.client.tts(&request).await?).await
+}
+
 pub async fn livekit_token(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let response = state.client.livekit_token().await?;
-    let body: serde_json::Value = response
-        .json()
-        .await
-        .map_err(grok_client::error::GrokError::Request)?;
-    Ok(Json(body))
+    json_passthrough(state.client.livekit_token().await?).await
 }

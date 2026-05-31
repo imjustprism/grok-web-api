@@ -2,20 +2,17 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
-use futures::StreamExt;
 
 use crate::error::{ApiError, AppJson};
+use crate::routes::stream_body;
 use crate::state::AppState;
 use grok_client::types::chat::{AddResponseRequest, NewConversationRequest, QuickAnswerRequest};
 use grok_client::types::common::{ConversationId, ResponseId};
 
 fn ndjson_stream(response: grok_client::wreq::Response) -> Response {
-    let stream = response
-        .bytes_stream()
-        .map(|chunk| chunk.map_err(std::io::Error::other));
     (
         [(header::CONTENT_TYPE, "application/x-ndjson")],
-        axum::body::Body::from_stream(stream),
+        stream_body(response),
     )
         .into_response()
 }

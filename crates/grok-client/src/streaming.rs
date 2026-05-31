@@ -302,7 +302,7 @@ struct RawError {
 fn parse_ndjson_line(line: &str) -> Result<Option<StreamChunk>> {
     let value: serde_json::Value = serde_json::from_str(line)
         .map_err(|e| GrokError::StreamParse(format!("failed to parse NDJSON: {e}")))?;
-    let raw: RawLine = match serde_json::from_value(value.clone()) {
+    let raw: RawLine = match serde::Deserialize::deserialize(&value) {
         Ok(r) => r,
         Err(e) => {
             tracing::debug!(err = %e, "skipping NDJSON line with unexpected shape");

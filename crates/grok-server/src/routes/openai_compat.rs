@@ -210,6 +210,26 @@ fn sse_line(json: &impl Serialize) -> bytes::Bytes {
     bytes::Bytes::from(buf)
 }
 
+fn chunk_line(
+    id: &str,
+    created: u64,
+    model: &str,
+    delta: Delta<'_>,
+    finish_reason: Option<&'static str>,
+) -> bytes::Bytes {
+    sse_line(&ChunkWrapper {
+        id,
+        object: "chat.completion.chunk",
+        created,
+        model,
+        choices: [ChunkChoice {
+            index: 0,
+            delta,
+            finish_reason,
+        }],
+    })
+}
+
 fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -225,9 +245,17 @@ fn alias_map(tools: &[ToolDef]) -> std::collections::HashMap<String, String> {
         .collect()
 }
 
+fn reverse_alias_map(
+    alias: &std::collections::HashMap<String, String>,
+) -> std::collections::HashMap<&str, &str> {
+    alias
+        .iter()
+        .map(|(a, o)| (o.as_str(), a.as_str()))
+        .collect()
+}
+
 fn aliased_specs(tools: &[ToolDef], map: &std::collections::HashMap<String, String>) -> String {
-    let reverse: std::collections::HashMap<&str, &str> =
-        map.iter().map(|(a, o)| (o.as_str(), a.as_str())).collect();
+    let reverse = reverse_alias_map(map);
     let specs: Vec<FunctionDef> = tools
         .iter()
         .map(|t| FunctionDef {
@@ -249,10 +277,7 @@ fn build_tool_system_block(
     alias: &std::collections::HashMap<String, String>,
 ) -> String {
     let schema = aliased_specs(tools, alias);
-    let reverse: std::collections::HashMap<&str, &str> = alias
-        .iter()
-        .map(|(a, o)| (o.as_str(), a.as_str()))
-        .collect();
+    let reverse = reverse_alias_map(alias);
     let directive = match tool_choice {
         Some(serde_json::Value::String(s)) if s == "required" => "MUST call a function.",
         Some(serde_json::Value::Object(obj))
@@ -294,10 +319,7 @@ where
     I: IntoIterator<Item = &'a Message>,
 {
     use std::fmt::Write;
-    let real_to_alias: std::collections::HashMap<&str, &str> = alias
-        .iter()
-        .map(|(a, o)| (o.as_str(), a.as_str()))
-        .collect();
+    let real_to_alias = reverse_alias_map(alias);
     let mut out = String::new();
     for m in messages {
         if !out.is_empty() {
@@ -355,7 +377,7 @@ struct ParsedToolCall {
 
 fn parse_bare_json_calls(
     text: &str,
-    known: &std::collections::HashSet<String>,
+    known: &std::collections::HashSet<&str>,
 ) -> Vec<ParsedToolCall> {
     let mut calls = Vec::new();
     let bytes = text.as_bytes();
@@ -412,6 +434,22 @@ fn reverse_alias(calls: &mut [ParsedToolCall], alias: &std::collections::HashMap
             c.name = real.clone();
         }
     }
+}
+
+fn extract_tool_calls(
+    text: &str,
+    alias: &std::collections::HashMap<String, String>,
+) -> (String, Vec<ParsedToolCall>) {
+    let cleaned = strip_json_fences(text);
+    let (mut content, mut calls) = parse_tool_calls(&cleaned);
+    if calls.is_empty() {
+        let known: std::collections::HashSet<&str> = alias.keys().map(String::as_str).collect();
+        calls = parse_bare_json_calls(&cleaned, &known);
+        if !calls.is_empty() {
+            content.clear();
+        }
+    }
+    (content, calls)
 }
 
 fn parse_tool_calls(text: &str) -> (String, Vec<ParsedToolCall>) {
@@ -612,7 +650,6 @@ async fn stream_response(
     tools_enabled: bool,
     alias: std::collections::HashMap<String, String>,
 ) -> Result<Response, ApiError> {
-    let known_aliases: std::collections::HashSet<String> = alias.keys().cloned().collect();
     let mut grok_stream = state.client.create_conversation(&grok_req).await?;
     let completion_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
     let created = now_secs();
@@ -621,18 +658,8 @@ async fn stream_response(
     let model_for_stream = model.clone();
 
     let sse_stream = async_stream::try_stream! {
-        let role_chunk = ChunkWrapper {
-            id: &id_for_stream,
-            object: "chat.completion.chunk",
-            created,
-            model: &model_for_stream,
-            choices: [ChunkChoice {
-                index: 0,
-                delta: Delta { role: Some("assistant"), ..Delta::default() },
-                finish_reason: None,
-            }],
-        };
-        yield sse_line(&role_chunk);
+        yield chunk_line(&id_for_stream, created, &model_for_stream,
+            Delta { role: Some("assistant"), ..Delta::default() }, None);
 
         let mut buffer = String::new();
         let mut emitted_tool = false;
@@ -641,39 +668,18 @@ async fn stream_response(
             match chunk_result {
                 Ok(StreamChunk::Token { text, is_soft_stop }) => {
                     if is_soft_stop && text.is_empty() { continue; }
-                    buffer.push_str(&text);
 
                     if tools_enabled {
+                        buffer.push_str(&text);
                         let flush_to = safe_flush_boundary(&buffer);
                         if flush_to > 0 {
                             let piece: String = buffer.drain(..flush_to).collect();
-                            let chunk = ChunkWrapper {
-                                id: &id_for_stream,
-                                object: "chat.completion.chunk",
-                                created,
-                                model: &model_for_stream,
-                                choices: [ChunkChoice {
-                                    index: 0,
-                                    delta: Delta { content: Some(&piece), ..Delta::default() },
-                                    finish_reason: None,
-                                }],
-                            };
-                            yield sse_line(&chunk);
+                            yield chunk_line(&id_for_stream, created, &model_for_stream,
+                                Delta { content: Some(&piece), ..Delta::default() }, None);
                         }
                     } else {
-                        let chunk = ChunkWrapper {
-                            id: &id_for_stream,
-                            object: "chat.completion.chunk",
-                            created,
-                            model: &model_for_stream,
-                            choices: [ChunkChoice {
-                                index: 0,
-                                delta: Delta { content: Some(&text), ..Delta::default() },
-                                finish_reason: None,
-                            }],
-                        };
-                        buffer.clear();
-                        yield sse_line(&chunk);
+                        yield chunk_line(&id_for_stream, created, &model_for_stream,
+                            Delta { content: Some(&text), ..Delta::default() }, None);
                     }
                 }
                 Ok(StreamChunk::Done) => break,
@@ -697,33 +703,15 @@ async fn stream_response(
         }
 
         let (remaining_content, mut calls) = if tools_enabled {
-            let cleaned = strip_json_fences(&buffer);
-            let (mut content, mut parsed) = parse_tool_calls(&cleaned);
-            if parsed.is_empty() {
-                parsed = parse_bare_json_calls(&cleaned, &known_aliases);
-                if !parsed.is_empty() {
-                    content.clear();
-                }
-            }
-            (content, parsed)
+            extract_tool_calls(&buffer, &alias)
         } else {
             (std::mem::take(&mut buffer), Vec::new())
         };
         reverse_alias(&mut calls, &alias);
 
         if !remaining_content.is_empty() {
-            let chunk = ChunkWrapper {
-                id: &id_for_stream,
-                object: "chat.completion.chunk",
-                created,
-                model: &model_for_stream,
-                choices: [ChunkChoice {
-                    index: 0,
-                    delta: Delta { content: Some(&remaining_content), ..Delta::default() },
-                    finish_reason: None,
-                }],
-            };
-            yield sse_line(&chunk);
+            yield chunk_line(&id_for_stream, created, &model_for_stream,
+                Delta { content: Some(&remaining_content), ..Delta::default() }, None);
         }
 
         if !calls.is_empty() {
@@ -738,33 +726,12 @@ async fn stream_response(
                     function: FunctionDelta { name: &c.name, arguments: &c.arguments },
                 })
                 .collect();
-            let chunk = ChunkWrapper {
-                id: &id_for_stream,
-                object: "chat.completion.chunk",
-                created,
-                model: &model_for_stream,
-                choices: [ChunkChoice {
-                    index: 0,
-                    delta: Delta { tool_calls: Some(deltas), ..Delta::default() },
-                    finish_reason: None,
-                }],
-            };
-            yield sse_line(&chunk);
+            yield chunk_line(&id_for_stream, created, &model_for_stream,
+                Delta { tool_calls: Some(deltas), ..Delta::default() }, None);
         }
 
         let finish = if emitted_tool { "tool_calls" } else { "stop" };
-        let final_chunk = ChunkWrapper {
-            id: &id_for_stream,
-            object: "chat.completion.chunk",
-            created,
-            model: &model_for_stream,
-            choices: [ChunkChoice {
-                index: 0,
-                delta: Delta::default(),
-                finish_reason: Some(finish),
-            }],
-        };
-        yield sse_line(&final_chunk);
+        yield chunk_line(&id_for_stream, created, &model_for_stream, Delta::default(), Some(finish));
         yield bytes::Bytes::from_static(b"data: [DONE]\n\n");
     };
 
@@ -813,17 +780,8 @@ async fn non_stream_response(
     let mut grok_stream = state.client.create_conversation(&grok_req).await?;
     let full_text = grok_stream.collect_text().await?;
 
-    let known_aliases: std::collections::HashSet<String> = alias.keys().cloned().collect();
     let (content, mut calls) = if tools_enabled {
-        let cleaned = strip_json_fences(&full_text);
-        let (mut content, mut parsed) = parse_tool_calls(&cleaned);
-        if parsed.is_empty() {
-            parsed = parse_bare_json_calls(&cleaned, &known_aliases);
-            if !parsed.is_empty() {
-                content.clear();
-            }
-        }
-        (content, parsed)
+        extract_tool_calls(&full_text, &alias)
     } else {
         (full_text, Vec::new())
     };

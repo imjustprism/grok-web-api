@@ -23,6 +23,15 @@ pub mod sharing;
 pub mod suggestions;
 pub mod voice;
 
+pub(crate) fn stream_body(response: grok_client::wreq::Response) -> axum::body::Body {
+    use futures::StreamExt;
+    axum::body::Body::from_stream(
+        response
+            .bytes_stream()
+            .map(|chunk| chunk.map_err(std::io::Error::other)),
+    )
+}
+
 async fn request_tracking(State(state): State<AppState>, request: Request, next: Next) -> Response {
     state.record_request();
     let request_id = uuid::Uuid::new_v4().to_string();
