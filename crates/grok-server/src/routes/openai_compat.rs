@@ -51,18 +51,6 @@ pub enum Role {
     Other(String),
 }
 
-impl Role {
-    fn as_str(&self) -> &str {
-        match self {
-            Self::System => "system",
-            Self::User => "user",
-            Self::Assistant => "assistant",
-            Self::Tool => "tool",
-            Self::Other(s) => s,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
 pub struct Message {
     pub role: Role,
@@ -386,8 +374,10 @@ where
             Role::User => {
                 let _ = write!(&mut out, "<u>{}</u>", m.content);
             }
-            other => {
-                let role = other.as_str();
+            Role::System => {
+                let _ = write!(&mut out, "<system>{}</system>", m.content);
+            }
+            Role::Other(role) => {
                 let _ = write!(&mut out, "<{role}>{}</{role}>", m.content);
             }
         }
