@@ -187,3 +187,50 @@ impl From<&str> for Timestamp {
         Self(s.to_owned())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn known_sender_variants_round_trip() {
+        assert_eq!(
+            serde_json::from_str::<Sender>(r#""human""#).unwrap(),
+            Sender::Human
+        );
+        assert_eq!(
+            serde_json::from_str::<Sender>(r#""ASSISTANT""#).unwrap(),
+            Sender::Assistant
+        );
+        assert_eq!(serde_json::to_value(Sender::Human).unwrap(), "human");
+        assert_eq!(
+            serde_json::to_value(Sender::Assistant).unwrap(),
+            "ASSISTANT"
+        );
+    }
+
+    #[test]
+    fn unknown_sender_falls_back_to_other() {
+        assert_eq!(
+            serde_json::from_str::<Sender>(r#""bot""#).unwrap(),
+            Sender::Other("bot".into())
+        );
+    }
+
+    #[test]
+    fn unknown_code_language_falls_back_to_other() {
+        let lang: CodeLanguage = serde_json::from_str(r#""zig""#).unwrap();
+        assert_eq!(lang, CodeLanguage::Other("zig".into()));
+        assert_eq!(lang.to_string(), "zig");
+    }
+
+    #[test]
+    fn id_is_serde_transparent() {
+        let id = ConversationId::new("c-1");
+        assert_eq!(serde_json::to_value(&id).unwrap(), "c-1");
+        assert_eq!(
+            serde_json::from_str::<ConversationId>(r#""c-1""#).unwrap(),
+            id
+        );
+    }
+}
