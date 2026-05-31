@@ -91,7 +91,7 @@ Five modes map to the options grok.com exposes in its UI.
 | `heavy` | Heavy | Multi-agent orchestration. Requires Heavy plan |
 | `grok-43` | Grok 4.3 | Early access. Sent as Grok's `modelMode`; may require account access |
 
-Unknown model IDs fall back to `auto` with a debug log. The server does not expose `grok-2`, `grok-3`, `grok-4`, `grok-4-mini`, or other legacy names because the web client no longer routes to them.
+Unknown model IDs fall back to `auto` with a warning log. The server does not expose `grok-2`, `grok-3`, `grok-4`, `grok-4-mini`, or other legacy names because the web client no longer routes to them.
 
 ## OpenAI-Compatible API
 

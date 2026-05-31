@@ -706,7 +706,7 @@ pub async fn chat_completions(
 
     let model_str = request.model.unwrap_or_else(|| "auto".into());
     let resolved = RequestedModel::parse(&model_str).unwrap_or_else(|| {
-        tracing::debug!(
+        tracing::warn!(
             requested = %model_str,
             "unknown model id, falling back to 'auto' (supported: auto, fast, expert, heavy, grok-43)"
         );
