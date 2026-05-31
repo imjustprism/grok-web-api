@@ -41,7 +41,7 @@ pub struct ChatCompletionRequest {
 #[serde(untagged)]
 pub enum ToolChoice {
     Mode(ToolChoiceMode),
-    Named { function: NamedFunction },
+    Named(NamedChoice),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -50,6 +50,22 @@ pub enum ToolChoiceMode {
     None,
     Auto,
     Required,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NamedChoice {
+    #[serde(rename = "type", default)]
+    kind: ChoiceType,
+    function: NamedFunction,
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Deserialize)]
+pub enum ChoiceType {
+    #[serde(rename = "function")]
+    Function,
+    #[default]
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Debug, Deserialize)]
@@ -347,7 +363,10 @@ fn build_tool_system_block(
     let reverse = reverse_alias_map(alias);
     let directive = match tool_choice {
         Some(ToolChoice::Mode(ToolChoiceMode::Required)) => "MUST call a function.",
-        Some(ToolChoice::Named { function }) => {
+        Some(ToolChoice::Named(NamedChoice {
+            kind: ChoiceType::Function,
+            function,
+        })) => {
             let aliased = reverse
                 .get(function.name.as_str())
                 .copied()
@@ -1093,8 +1112,31 @@ mod tests {
         let named: ToolChoice =
             serde_json::from_value(serde_json::json!({"type":"function","function":{"name":"f"}}))
                 .unwrap();
-        assert!(matches!(named, ToolChoice::Named { function } if function.name == "f"));
+        assert!(
+            matches!(named, ToolChoice::Named(NamedChoice { kind: ChoiceType::Function, function }) if function.name == "f")
+        );
         assert!(serde_json::from_value::<ToolChoice>(serde_json::json!("bogus")).is_err());
+    }
+
+    #[test]
+    fn named_choice_without_function_type_does_not_force() {
+        let tools = vec![ToolDef {
+            function: FunctionDef {
+                name: "my_fn".into(),
+                description: None,
+                parameters: None,
+            },
+        }];
+        let alias = alias_map(&tools);
+        let wrong: ToolChoice =
+            serde_json::from_value(serde_json::json!({"type":"bar","function":{"name":"my_fn"}}))
+                .unwrap();
+        assert!(!build_tool_system_block(&tools, Some(&wrong), &alias).contains("once:"));
+        let forced: ToolChoice = serde_json::from_value(
+            serde_json::json!({"type":"function","function":{"name":"my_fn"}}),
+        )
+        .unwrap();
+        assert!(build_tool_system_block(&tools, Some(&forced), &alias).contains("once:"));
     }
 
     #[test]
