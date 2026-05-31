@@ -17,13 +17,11 @@ impl GrokClient {
     }
 
     pub async fn delete_memory(&self, conversation_ids: &[ConversationId]) -> Result<()> {
-        #[derive(serde::Serialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Q<'a> {
-            conversation_ids: &'a [ConversationId],
-        }
-        self.delete_with_query("memory", &Q { conversation_ids })
-            .await?;
+        let query: Vec<(&str, &str)> = conversation_ids
+            .iter()
+            .map(|id| ("conversationIds", id.as_str()))
+            .collect();
+        self.delete_with_query("memory", &query).await?;
         Ok(())
     }
 
