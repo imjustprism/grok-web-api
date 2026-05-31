@@ -37,9 +37,23 @@ pub struct ChatCompletionRequest {
     pub response_format: Option<serde_json::Value>,
 }
 
+#[derive(Debug, PartialEq, Eq, Deserialize)]
+pub enum Role {
+    #[serde(rename = "system")]
+    System,
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "assistant")]
+    Assistant,
+    #[serde(rename = "tool")]
+    Tool,
+    #[serde(untagged)]
+    Other(String),
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Message {
-    pub role: String,
+    pub role: Role,
     #[serde(default, deserialize_with = "deserialize_content")]
     pub content: String,
     #[serde(default)]
@@ -325,8 +339,8 @@ where
         if !out.is_empty() {
             out.push('\n');
         }
-        match m.role.as_str() {
-            "tool" => {
+        match &m.role {
+            Role::Tool => {
                 let id = m.tool_call_id.as_deref().unwrap_or("unknown");
                 let _ = write!(
                     &mut out,
@@ -334,7 +348,7 @@ where
                     m.content
                 );
             }
-            "assistant" => {
+            Role::Assistant => {
                 out.push_str("<a>");
                 out.push_str(&m.content);
                 if let Some(calls) = &m.tool_calls {
@@ -357,10 +371,13 @@ where
                 }
                 out.push_str("</a>");
             }
-            "user" => {
+            Role::User => {
                 let _ = write!(&mut out, "<u>{}</u>", m.content);
             }
-            role => {
+            Role::System => {
+                let _ = write!(&mut out, "<system>{}</system>", m.content);
+            }
+            Role::Other(role) => {
                 let _ = write!(&mut out, "<{role}>{}</{role}>", m.content);
             }
         }
@@ -572,7 +589,7 @@ pub async fn chat_completions(
     let system_parts: Vec<String> = request
         .messages
         .iter()
-        .filter(|m| m.role == "system")
+        .filter(|m| m.role == Role::System)
         .map(|m| m.content.clone())
         .collect();
 
@@ -597,7 +614,7 @@ pub async fn chat_completions(
     let non_system: Vec<&Message> = request
         .messages
         .iter()
-        .filter(|m| m.role != "system")
+        .filter(|m| m.role != Role::System)
         .collect();
 
     if non_system.is_empty() {
@@ -608,7 +625,7 @@ pub async fn chat_completions(
 
     let history = if non_system.len() == 1
         && non_system[0].tool_calls.is_none()
-        && non_system[0].role != "tool"
+        && non_system[0].role != Role::Tool
     {
         non_system[0].content.clone()
     } else {
@@ -925,9 +942,21 @@ mod tests {
     }
 
     #[test]
+    fn role_parses_known_and_unknown() {
+        assert_eq!(
+            serde_json::from_str::<Role>(r#""assistant""#).unwrap(),
+            Role::Assistant
+        );
+        assert_eq!(
+            serde_json::from_str::<Role>(r#""developer""#).unwrap(),
+            Role::Other("developer".into())
+        );
+    }
+
+    #[test]
     fn render_tool_result_message() {
         let m = Message {
-            role: "tool".into(),
+            role: Role::Tool,
             content: "result data".into(),
             tool_call_id: Some("call_123".into()),
             tool_calls: None,
@@ -941,7 +970,7 @@ mod tests {
     #[test]
     fn render_assistant_tool_calls() {
         let m = Message {
-            role: "assistant".into(),
+            role: Role::Assistant,
             content: "calling".into(),
             tool_call_id: None,
             tool_calls: Some(vec![InboundToolCall {
@@ -961,13 +990,13 @@ mod tests {
     #[test]
     fn render_history_separates_with_blank_line() {
         let a = Message {
-            role: "user".into(),
+            role: Role::User,
             content: "hi".into(),
             tool_call_id: None,
             tool_calls: None,
         };
         let b = Message {
-            role: "assistant".into(),
+            role: Role::Assistant,
             content: "hello".into(),
             tool_call_id: None,
             tool_calls: None,

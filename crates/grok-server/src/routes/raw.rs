@@ -6,6 +6,8 @@ use crate::error::ApiError;
 use crate::routes::stream_body;
 use crate::state::AppState;
 
+const MAX_RAW_BODY_BYTES: usize = 10 * 1024 * 1024;
+
 pub async fn raw_proxy(
     State(state): State<AppState>,
     request: Request,
@@ -29,7 +31,7 @@ pub async fn raw_proxy(
 
     let method = request.method().clone();
 
-    let body_bytes = axum::body::to_bytes(request.into_body(), 10 * 1024 * 1024)
+    let body_bytes = axum::body::to_bytes(request.into_body(), MAX_RAW_BODY_BYTES)
         .await
         .map_err(|e| ApiError::bad_request(format!("Failed to read body: {e}")))?;
 
