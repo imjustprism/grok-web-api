@@ -11,6 +11,9 @@ use crate::error::{GrokError, RateLimitType, Result};
 const DEFAULT_BASE_URL: &str = "https://grok.com";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 const STREAM_TIMEOUT: Duration = Duration::from_secs(300);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const POOL_MAX_IDLE_PER_HOST: usize = 10;
+const TOKEN_PROVIDER_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
 pub struct GrokClient {
@@ -56,7 +59,7 @@ pub struct HttpTokenProvider {
 impl HttpTokenProvider {
     pub fn new(url: impl Into<String>) -> Result<Self> {
         let client = wreq::Client::builder()
-            .timeout(Duration::from_secs(5))
+            .timeout(TOKEN_PROVIDER_TIMEOUT)
             .build()
             .map_err(GrokError::Request)?;
         Ok(Self {
@@ -108,8 +111,8 @@ impl GrokClient {
         let http = Client::builder()
             .emulation(Emulation::Chrome136)
             .timeout(DEFAULT_TIMEOUT)
-            .connect_timeout(Duration::from_secs(10))
-            .pool_max_idle_per_host(10)
+            .connect_timeout(CONNECT_TIMEOUT)
+            .pool_max_idle_per_host(POOL_MAX_IDLE_PER_HOST)
             .gzip(true)
             .build()
             .map_err(GrokError::Request)?;

@@ -23,6 +23,8 @@ pub mod sharing;
 pub mod suggestions;
 pub mod voice;
 
+const MAX_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
+
 pub(crate) fn stream_body(response: grok_client::wreq::Response) -> axum::body::Body {
     use futures::StreamExt;
     axum::body::Body::from_stream(
@@ -128,7 +130,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route(
             "/v1/files",
-            post(files::upload_file).layer(DefaultBodyLimit::max(64 * 1024 * 1024)),
+            post(files::upload_file).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
         )
         .route("/v1/files/{id}/metadata", get(files::get_file_metadata))
         .route("/v1/code/run", post(code::run_code))

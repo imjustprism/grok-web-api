@@ -17,6 +17,10 @@ mod update_keys;
 use config::Config;
 use state::AppState;
 
+const MIN_SESSION_CHECK_SECS: u64 = 30;
+const DEFAULT_CHALLENGE_TRAILER: u8 = 3;
+const COMPRESSION_MIN_BYTES: u16 = 1024;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -79,7 +83,9 @@ async fn main() -> anyhow::Result<()> {
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     if let (Some(h), Some(s)) = (&config.challenge_header_hex, &config.challenge_suffix) {
-        let trailer = config.challenge_trailer.unwrap_or(3);
+        let trailer = config
+            .challenge_trailer
+            .unwrap_or(DEFAULT_CHALLENGE_TRAILER);
         let challenge =
             grok_client::ChallengeConfig::new(h, s, trailer).map_err(|e| anyhow::anyhow!("{e}"))?;
         grok_client = grok_client.with_token_provider(challenge);
@@ -99,7 +105,9 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => error!("Session check failed: {e}"),
     }
 
-    let check_secs = config.session_check_interval_secs.max(30);
+    let check_secs = config
+        .session_check_interval_secs
+        .max(MIN_SESSION_CHECK_SECS);
     if check_secs != config.session_check_interval_secs {
         warn!(
             "SESSION_CHECK_INTERVAL_SECS={} too low, clamped to {}",
@@ -135,7 +143,7 @@ async fn main() -> anyhow::Result<()> {
         .as_deref()
         .is_some_and(|k| !k.is_empty());
 
-    let compression_predicate = SizeAbove::new(1024)
+    let compression_predicate = SizeAbove::new(COMPRESSION_MIN_BYTES)
         .and(NotForContentType::const_new("text/event-stream"))
         .and(NotForContentType::const_new("application/x-ndjson"))
         .and(NotForContentType::const_new("audio/mpeg"))
