@@ -1,21 +1,7 @@
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
-const ALLOWED_KEYS: &[&str] = &[
-    "GROK_SSO_COOKIE",
-    "GROK_SSO_RW_COOKIE",
-    "GROK_EXTRA_COOKIES",
-    "TOKEN_PROVIDER_URL",
-    "CHALLENGE_HEADER_HEX",
-    "CHALLENGE_SUFFIX",
-    "CHALLENGE_TRAILER",
-    "API_KEY",
-    "HOST",
-    "PORT",
-    "LOG_LEVEL",
-    "SESSION_CHECK_INTERVAL_SECS",
-    "GROK_BASE_URL",
-];
+use crate::config::ENV_KEYS;
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let mut updates: Vec<(String, String)> = Vec::with_capacity(args.len());
@@ -24,10 +10,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
             return Err(format!("argument '{arg}' is not KEY=VALUE"));
         };
         let key = key.trim();
-        if !ALLOWED_KEYS.contains(&key) {
+        if !ENV_KEYS.contains(&key) {
             return Err(format!(
                 "unknown key '{key}'\nallowed: {}",
-                ALLOWED_KEYS.join(", ")
+                ENV_KEYS.join(", ")
             ));
         }
         updates.push((key.to_owned(), unquote(value.trim())));
