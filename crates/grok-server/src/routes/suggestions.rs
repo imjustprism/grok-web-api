@@ -6,6 +6,8 @@ use serde::Deserialize;
 use crate::error::{ApiError, AppJson};
 use crate::state::AppState;
 
+const DEFAULT_SUGGESTION_COUNT: u32 = 8;
+
 #[derive(Debug, Deserialize)]
 pub struct SuggestionsQuery {
     pub query: Option<String>,
@@ -18,7 +20,10 @@ pub async fn get_suggestions(
 ) -> Result<impl IntoResponse, ApiError> {
     let result = state
         .client
-        .get_suggestions(q.query.as_deref(), Some(q.count.unwrap_or(8)))
+        .get_suggestions(
+            q.query.as_deref(),
+            Some(q.count.unwrap_or(DEFAULT_SUGGESTION_COUNT)),
+        )
         .await?;
     Ok(Json(result))
 }

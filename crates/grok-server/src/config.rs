@@ -2,6 +2,27 @@ use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
 use serde::{Deserialize, Serialize};
 
+pub(crate) const ENV_KEYS: &[&str] = &[
+    "GROK_SSO_COOKIE",
+    "GROK_SSO_RW_COOKIE",
+    "GROK_EXTRA_COOKIES",
+    "TOKEN_PROVIDER_URL",
+    "CHALLENGE_HEADER_HEX",
+    "CHALLENGE_SUFFIX",
+    "CHALLENGE_TRAILER",
+    "API_KEY",
+    "HOST",
+    "PORT",
+    "LOG_LEVEL",
+    "SESSION_CHECK_INTERVAL_SECS",
+    "GROK_BASE_URL",
+];
+
+const DEFAULT_PORT: u16 = 3000;
+const DEFAULT_SESSION_CHECK_SECS: u64 = 300;
+const DEFAULT_HOST: &str = "0.0.0.0";
+const DEFAULT_BASE_URL: &str = "https://grok.com";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub host: String,
@@ -28,8 +49,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            host: "0.0.0.0".into(),
-            port: 3000,
+            host: DEFAULT_HOST.into(),
+            port: DEFAULT_PORT,
             api_key: None,
             grok_sso_cookie: String::new(),
             grok_sso_rw_cookie: String::new(),
@@ -38,9 +59,9 @@ impl Default for Config {
             challenge_header_hex: None,
             challenge_suffix: None,
             challenge_trailer: None,
-            grok_base_url: "https://grok.com".into(),
+            grok_base_url: DEFAULT_BASE_URL.into(),
             log_level: "info".into(),
-            session_check_interval_secs: 300,
+            session_check_interval_secs: DEFAULT_SESSION_CHECK_SECS,
         }
     }
 }
@@ -53,37 +74,8 @@ impl Config {
             .merge(Env::prefixed("GROK_API_").split("__"))
             .merge(
                 Env::raw()
-                    .only(&[
-                        "GROK_SSO_COOKIE",
-                        "GROK_SSO_RW_COOKIE",
-                        "GROK_EXTRA_COOKIES",
-                        "TOKEN_PROVIDER_URL",
-                        "CHALLENGE_HEADER_HEX",
-                        "CHALLENGE_SUFFIX",
-                        "CHALLENGE_TRAILER",
-                        "API_KEY",
-                        "HOST",
-                        "PORT",
-                        "LOG_LEVEL",
-                        "SESSION_CHECK_INTERVAL_SECS",
-                        "GROK_BASE_URL",
-                    ])
-                    .map(|key| match key.as_str() {
-                        "GROK_SSO_COOKIE" => "grok_sso_cookie".into(),
-                        "GROK_SSO_RW_COOKIE" => "grok_sso_rw_cookie".into(),
-                        "GROK_EXTRA_COOKIES" => "grok_extra_cookies".into(),
-                        "TOKEN_PROVIDER_URL" => "token_provider_url".into(),
-                        "CHALLENGE_HEADER_HEX" => "challenge_header_hex".into(),
-                        "CHALLENGE_SUFFIX" => "challenge_suffix".into(),
-                        "CHALLENGE_TRAILER" => "challenge_trailer".into(),
-                        "API_KEY" => "api_key".into(),
-                        "HOST" => "host".into(),
-                        "PORT" => "port".into(),
-                        "LOG_LEVEL" => "log_level".into(),
-                        "SESSION_CHECK_INTERVAL_SECS" => "session_check_interval_secs".into(),
-                        "GROK_BASE_URL" => "grok_base_url".into(),
-                        other => other.into(),
-                    }),
+                    .only(ENV_KEYS)
+                    .map(|key| key.as_str().to_ascii_lowercase().into()),
             )
             .extract()
     }
