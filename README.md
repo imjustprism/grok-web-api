@@ -46,6 +46,14 @@ var m=Void.findByProps("chatApi"),p=m.chatApi.configuration.middleware[0].pre,r=
 
 Copy the three output lines into `.env`. Re-run the snippet whenever Grok ships a new build.
 
+To skip manual editing, pipe the values straight into `.env` with the built-in subcommand:
+
+```sh
+cargo run -- update-keys CHALLENGE_HEADER_HEX=... CHALLENGE_SUFFIX=... CHALLENGE_TRAILER=3
+```
+
+It rewrites the matching lines in `.env` (creating missing ones) and leaves everything else untouched. Keys are validated against the known config names. Any of the variables in the configuration table can be set this way, e.g. `cargo run -- update-keys GROK_SSO_COOKIE=...`. Alias `update-keys` to `grok-server update-keys` and a clipboard-extraction bookmarklet can drop a ready-to-run command straight into your terminal.
+
 <details>
 <summary>Without Void (manual extraction)</summary>
 
@@ -391,7 +399,7 @@ curl -X POST http://localhost:3000/v1/voice/livekit/token \
 | `API_KEY` | no | | Bearer token required by this server's clients |
 | `HOST` | no | `0.0.0.0` | Bind address |
 | `PORT` | no | `3000` | Listen port |
-| `SESSION_CHECK_INTERVAL_SECS` | no | `60` | Background cookie validity poll, minimum 30 |
+| `SESSION_CHECK_INTERVAL_SECS` | no | `300` | Background cookie validity poll, minimum 30 |
 | `LOG_LEVEL` | no | `info` | Log level filter |
 
 ## Errors

@@ -12,12 +12,22 @@ mod config;
 mod error;
 mod routes;
 mod state;
+mod update_keys;
 
 use config::Config;
 use state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("update-keys") {
+        if let Err(e) = update_keys::run(&args[2..]) {
+            eprintln!("update-keys: {e}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
     match dotenvy::dotenv() {
         Ok(_) | Err(dotenvy::Error::Io(_)) => {}
         Err(e) => eprintln!("warning: failed to parse .env: {e}"),
