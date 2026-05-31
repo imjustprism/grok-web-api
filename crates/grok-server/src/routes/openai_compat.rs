@@ -6,7 +6,7 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ApiError, AppJson};
-use crate::routes::models::{GROK_4_3_UPSTREAM, MODE_IDS};
+use crate::routes::models::GROK_4_3_UPSTREAM;
 use crate::state::AppState;
 use grok_client::streaming::StreamChunk;
 use grok_client::types::chat::NewConversationRequest;
@@ -32,9 +32,61 @@ pub struct ChatCompletionRequest {
     #[serde(default)]
     pub tools: Option<Vec<ToolDef>>,
     #[serde(default)]
-    pub tool_choice: Option<serde_json::Value>,
+    pub tool_choice: Option<ToolChoice>,
     #[serde(default)]
     pub response_format: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum ToolChoice {
+    Mode(ToolChoiceMode),
+    Named { function: NamedFunction },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolChoiceMode {
+    None,
+    Auto,
+    Required,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NamedFunction {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RequestedModel {
+    Auto,
+    Fast,
+    Expert,
+    Heavy,
+    Grok43,
+}
+
+impl RequestedModel {
+    fn parse(id: &str) -> Option<Self> {
+        Some(match id {
+            "auto" => Self::Auto,
+            "fast" => Self::Fast,
+            "expert" => Self::Expert,
+            "heavy" => Self::Heavy,
+            "grok-4-3" => Self::Grok43,
+            _ => return None,
+        })
+    }
+
+    fn upstream(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Fast => "fast",
+            Self::Expert => "expert",
+            Self::Heavy => "heavy",
+            Self::Grok43 => GROK_4_3_UPSTREAM,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -213,7 +265,8 @@ struct SseErrorInner<'a> {
 }
 
 fn sse_line(json: &impl Serialize) -> bytes::Bytes {
-    let mut buf = Vec::with_capacity(256);
+    const SSE_BUF_CAPACITY: usize = 256;
+    let mut buf = Vec::with_capacity(SSE_BUF_CAPACITY);
     buf.extend_from_slice(b"data: ");
     if let Err(e) = serde_json::to_writer(&mut buf, json) {
         tracing::error!("sse_line serialize failed: {e}");
@@ -287,29 +340,23 @@ fn aliased_specs(tools: &[ToolDef], map: &std::collections::HashMap<String, Stri
 
 fn build_tool_system_block(
     tools: &[ToolDef],
-    tool_choice: Option<&serde_json::Value>,
+    tool_choice: Option<&ToolChoice>,
     alias: &std::collections::HashMap<String, String>,
 ) -> String {
     let schema = aliased_specs(tools, alias);
     let reverse = reverse_alias_map(alias);
     let directive = match tool_choice {
-        Some(serde_json::Value::String(s)) if s == "required" => "MUST call a function.",
-        Some(serde_json::Value::Object(obj))
-            if obj.get("type").and_then(|v| v.as_str()) == Some("function") =>
-        {
-            if let Some(name) = obj
-                .get("function")
-                .and_then(|f| f.get("name"))
-                .and_then(|n| n.as_str())
-            {
-                let aliased = reverse.get(name).copied().unwrap_or(name);
-                return format!(
-                    "fn-call protocol.\n\
-                     Call \"{aliased}\" once: {TOOL_CALL_OPEN}{{\"name\":\"{aliased}\",\"arguments\":{{...}}}}{TOOL_CALL_CLOSE} then stop. No prose, no fences.\n\
-                     fns: {schema}"
-                );
-            }
-            "Call when it fits."
+        Some(ToolChoice::Mode(ToolChoiceMode::Required)) => "MUST call a function.",
+        Some(ToolChoice::Named { function }) => {
+            let aliased = reverse
+                .get(function.name.as_str())
+                .copied()
+                .unwrap_or(function.name.as_str());
+            return format!(
+                "fn-call protocol.\n\
+                 Call \"{aliased}\" once: {TOOL_CALL_OPEN}{{\"name\":\"{aliased}\",\"arguments\":{{...}}}}{TOOL_CALL_CLOSE} then stop. No prose, no fences.\n\
+                 fns: {schema}"
+            );
         }
         _ => "Call when it fits.",
     };
@@ -580,11 +627,10 @@ pub async fn chat_completions(
     if request.response_format.is_some() {
         tracing::debug!("response_format ignored — Grok web API does not support JSON mode");
     }
-    let tool_choice_none = request
-        .tool_choice
-        .as_ref()
-        .and_then(|v| v.as_str())
-        .is_some_and(|s| s == "none");
+    let tool_choice_none = matches!(
+        request.tool_choice,
+        Some(ToolChoice::Mode(ToolChoiceMode::None))
+    );
 
     let system_parts: Vec<String> = request
         .messages
@@ -640,18 +686,14 @@ pub async fn chat_completions(
     }
 
     let model_str = request.model.unwrap_or_else(|| "auto".into());
-    let resolved = match model_str.as_str() {
-        "grok-4-3" => GROK_4_3_UPSTREAM.to_owned(),
-        m if MODE_IDS.contains(&m) => m.to_owned(),
-        _ => {
-            tracing::debug!(
-                requested = %model_str,
-                "unknown model id, falling back to 'auto' (supported: auto, fast, expert, heavy, grok-4-3)"
-            );
-            "auto".to_owned()
-        }
-    };
-    grok_req.options.mode_id = Some(resolved.into());
+    let resolved = RequestedModel::parse(&model_str).unwrap_or_else(|| {
+        tracing::debug!(
+            requested = %model_str,
+            "unknown model id, falling back to 'auto' (supported: auto, fast, expert, heavy, grok-4-3)"
+        );
+        RequestedModel::Auto
+    });
+    grok_req.options.mode_id = Some(resolved.upstream().into());
 
     if request.stream {
         stream_response(state, grok_req, model_str, tools_enabled, alias).await
@@ -1014,7 +1056,10 @@ mod tests {
                 parameters: None,
             },
         }];
-        let choice = serde_json::json!({"type": "function", "function": {"name": "my_fn"}});
+        let choice: ToolChoice = serde_json::from_value(
+            serde_json::json!({"type": "function", "function": {"name": "my_fn"}}),
+        )
+        .unwrap();
         let alias = alias_map(&tools);
         let block = build_tool_system_block(&tools, Some(&choice), &alias);
         assert!(block.contains("fn_0"));
@@ -1029,10 +1074,38 @@ mod tests {
                 parameters: None,
             },
         }];
-        let choice = serde_json::Value::String("required".into());
+        let choice: ToolChoice = serde_json::from_value(serde_json::json!("required")).unwrap();
         let alias = alias_map(&tools);
         let block = build_tool_system_block(&tools, Some(&choice), &alias);
         assert!(block.contains("MUST call a function"));
+    }
+
+    #[test]
+    fn tool_choice_parses_modes_and_named() {
+        assert!(matches!(
+            serde_json::from_value::<ToolChoice>(serde_json::json!("none")).unwrap(),
+            ToolChoice::Mode(ToolChoiceMode::None)
+        ));
+        assert!(matches!(
+            serde_json::from_value::<ToolChoice>(serde_json::json!("auto")).unwrap(),
+            ToolChoice::Mode(ToolChoiceMode::Auto)
+        ));
+        let named: ToolChoice =
+            serde_json::from_value(serde_json::json!({"type":"function","function":{"name":"f"}}))
+                .unwrap();
+        assert!(matches!(named, ToolChoice::Named { function } if function.name == "f"));
+        assert!(serde_json::from_value::<ToolChoice>(serde_json::json!("bogus")).is_err());
+    }
+
+    #[test]
+    fn requested_model_resolves_to_upstream() {
+        assert_eq!(RequestedModel::parse("auto").unwrap().upstream(), "auto");
+        assert_eq!(RequestedModel::parse("heavy").unwrap().upstream(), "heavy");
+        assert_eq!(
+            RequestedModel::parse("grok-4-3").unwrap().upstream(),
+            GROK_4_3_UPSTREAM
+        );
+        assert!(RequestedModel::parse("gpt-4").is_none());
     }
 
     #[test]

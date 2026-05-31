@@ -5,9 +5,11 @@ use serde::Serialize;
 
 use crate::error::ApiError;
 
-pub const MODE_IDS: &[&str] = &["auto", "fast", "expert", "heavy", "grok-4-3"];
-
 pub const GROK_4_3_UPSTREAM: &str = "grok-420-computer-use-sa";
+
+const CREATED_GROK_BASE: u64 = 1_710_000_000;
+const CREATED_GROK_HEAVY: u64 = 1_720_000_000;
+const CREATED_GROK_4_3: u64 = 1_740_000_000;
 
 #[derive(Serialize)]
 struct ModelObject {
@@ -29,35 +31,35 @@ const MODELS: &[ModelObject] = &[
     ModelObject {
         id: "auto",
         object: "model",
-        created: 1710000000,
+        created: CREATED_GROK_BASE,
         owned_by: "xai",
         description: Some("Chooses Fast or Expert based on query complexity"),
     },
     ModelObject {
         id: "fast",
         object: "model",
-        created: 1710000000,
+        created: CREATED_GROK_BASE,
         owned_by: "xai",
         description: Some("Quick responses"),
     },
     ModelObject {
         id: "expert",
         object: "model",
-        created: 1710000000,
+        created: CREATED_GROK_BASE,
         owned_by: "xai",
         description: Some("Thinks hard"),
     },
     ModelObject {
         id: "heavy",
         object: "model",
-        created: 1720000000,
+        created: CREATED_GROK_HEAVY,
         owned_by: "xai",
         description: Some("Team of experts — multi-agent orchestration"),
     },
     ModelObject {
         id: "grok-4-3",
         object: "model",
-        created: 1740000000,
+        created: CREATED_GROK_4_3,
         owned_by: "xai",
         description: Some("Grok 4.3 (beta) — early access"),
     },
