@@ -89,7 +89,7 @@ Five modes map to the options grok.com exposes in its UI.
 | `fast` | Fast | Quick responses |
 | `expert` | Expert | Deeper reasoning |
 | `heavy` | Heavy | Multi-agent orchestration. Requires Heavy plan |
-| `grok-4-3` | Grok 4.3 | Early access. Remaps to upstream `grok-420-computer-use-sa` so requests debit the 4.3 rate-limit bucket |
+| `grok-43` | Grok 4.3 | Early access. Sent as Grok's `modelMode`; may require account access |
 
 Unknown model IDs fall back to `auto` with a debug log. The server does not expose `grok-2`, `grok-3`, `grok-4`, `grok-4-mini`, or other legacy names because the web client no longer routes to them.
 
@@ -245,7 +245,7 @@ Add to `~/.openclaw/openclaw.json`:
           { id: "fast",     name: "Grok Fast",    contextWindow: 131072, maxTokens: 8192 },
           { id: "expert",   name: "Grok Expert",  contextWindow: 131072, maxTokens: 8192 },
           { id: "heavy",    name: "Grok Heavy",   contextWindow: 131072, maxTokens: 8192 },
-          { id: "grok-4-3", name: "Grok 4.3",     contextWindow: 131072, maxTokens: 8192 },
+          { id: "grok-43",  name: "Grok 4.3",     contextWindow: 131072, maxTokens: 8192 },
         ],
       },
     },
