@@ -322,14 +322,14 @@ impl GrokClient {
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
                 let body = response.text().await.unwrap_or_default();
                 warn!("Grok rejected request (HTTP {status}): {body}");
-                if body.contains("anti-bot") {
+                if is_auth_failure(&body) {
+                    self.auth.invalidate();
+                    Err(GrokError::AuthExpired)
+                } else {
                     Err(GrokError::Upstream {
                         status: status.as_u16(),
                         body,
                     })
-                } else {
-                    self.auth.invalidate();
-                    Err(GrokError::AuthExpired)
                 }
             }
             StatusCode::TOO_MANY_REQUESTS => {
@@ -378,5 +378,32 @@ impl GrokClient {
             Err(GrokError::AuthExpired) => Ok(false),
             Err(e) => Err(e),
         }
+    }
+}
+
+fn is_auth_failure(body: &str) -> bool {
+    body.contains("unauthenticated") || body.contains("Bad credentials")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_auth_failure;
+
+    #[test]
+    fn expired_cookies_are_auth_failure() {
+        let body =
+            r#"{"code":16,"message":"Bad credentials. [WKE=unauthenticated:bad-credentials]"}"#;
+        assert!(is_auth_failure(body));
+    }
+
+    #[test]
+    fn model_not_found_is_not_auth_failure() {
+        let body = r#"{"error":{"code":7,"message":"Model is not found","details":[]}}"#;
+        assert!(!is_auth_failure(body));
+    }
+
+    #[test]
+    fn anti_bot_rejection_is_not_auth_failure() {
+        assert!(!is_auth_failure("request blocked by anti-bot protection"));
     }
 }
