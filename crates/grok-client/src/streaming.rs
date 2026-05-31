@@ -227,7 +227,14 @@ struct RawResult {
     #[serde(default)]
     conversation: Option<RawConversation>,
     #[serde(default)]
-    response: Option<RawResponse>,
+    response: Option<RawPayload>,
+    #[serde(flatten)]
+    payload: RawPayload,
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct RawPayload {
     #[serde(default)]
     token: Option<String>,
     #[serde(default)]
@@ -247,23 +254,6 @@ struct RawResult {
 struct RawConversation {
     #[serde(default)]
     conversation_id: Option<String>,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RawResponse {
-    #[serde(default)]
-    token: Option<String>,
-    #[serde(default)]
-    is_thinking: bool,
-    #[serde(default)]
-    is_soft_stop: bool,
-    #[serde(default, deserialize_with = "lenient_vec")]
-    web_search_results: Option<Vec<WebSearchResult>>,
-    #[serde(default)]
-    query: Option<String>,
-    #[serde(default)]
-    generated_image_url: Option<String>,
 }
 
 fn lenient_vec<'de, D, T>(de: D) -> std::result::Result<Option<Vec<T>>, D::Error>
@@ -328,26 +318,13 @@ fn parse_ndjson_line(line: &str) -> Result<Option<StreamChunk>> {
         }
     }
 
-    let (token, is_thinking, is_soft_stop, search, query, image) =
-        if let Some(ref resp) = result.response {
-            (
-                resp.token.as_deref(),
-                resp.is_thinking,
-                resp.is_soft_stop,
-                resp.web_search_results.as_ref(),
-                resp.query.as_ref(),
-                resp.generated_image_url.as_ref(),
-            )
-        } else {
-            (
-                result.token.as_deref(),
-                result.is_thinking,
-                result.is_soft_stop,
-                result.web_search_results.as_ref(),
-                result.query.as_ref(),
-                result.generated_image_url.as_ref(),
-            )
-        };
+    let payload = result.response.as_ref().unwrap_or(&result.payload);
+    let token = payload.token.as_deref();
+    let is_thinking = payload.is_thinking;
+    let is_soft_stop = payload.is_soft_stop;
+    let search = payload.web_search_results.as_ref();
+    let query = payload.query.as_ref();
+    let image = payload.generated_image_url.as_ref();
 
     if let Some(tok) = token {
         if is_soft_stop && tok.is_empty() {
